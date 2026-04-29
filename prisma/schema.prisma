@@ -53,6 +53,18 @@ model User {
   @@map("users")
 }
 
+model Tap {
+  id        String   @id @default(cuid())
+  kode      String   @unique
+  nama      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+  @@map("taps")
+}
+
 model Product {
   id               String            @id @default(cuid())
   kode             String            @unique

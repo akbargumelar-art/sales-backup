@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Outlet, Product, Role, SalesLineItem, Transaction, TransactionItem, User } from '@/types';
+import type { Outlet, Product, Role, SalesLineItem, Tap, Transaction, TransactionItem, User } from '@/types';
 
 type ToastType = 'success' | 'error' | 'warning';
 
@@ -10,6 +10,7 @@ interface BootstrapData {
   products: Product[];
   outlets: Outlet[];
   transactions: Transaction[];
+  taps: Tap[];
 }
 
 interface CreateAdminInput {
@@ -61,6 +62,12 @@ interface OutletInput {
   isManual?: boolean;
 }
 
+interface TapInput {
+  kode: string;
+  nama: string;
+  isActive?: boolean;
+}
+
 interface SubmitTransactionInput {
   outletId: string;
   salesforceId: string;
@@ -91,6 +98,7 @@ interface AppState {
   products: Product[];
   outlets: Outlet[];
   transactions: Transaction[];
+  taps: Tap[];
   hydrateFromServer: () => Promise<void>;
   login: (user: User) => void;
   logout: () => Promise<void>;
@@ -110,6 +118,9 @@ interface AppState {
   toggleProductActive: (productId: string) => Promise<boolean>;
   addOutlet: (input: OutletInput) => Promise<ActionResult<{ outlet?: Outlet }>>;
   updateOutlet: (outletId: string, input: OutletInput) => Promise<ActionResult<{ outlet?: Outlet }>>;
+  addTap: (input: TapInput) => Promise<ActionResult<{ tap?: Tap }>>;
+  updateTap: (tapId: string, input: TapInput) => Promise<ActionResult<{ tap?: Tap }>>;
+  toggleTapActive: (tapId: string) => Promise<boolean>;
   submitTransaction: (input: SubmitTransactionInput) => Promise<ActionResult<{ transaction?: Transaction }>>;
   requestCancelTransaction: (trxId: string, adminId: string, reason: string) => Promise<boolean>;
   approveCancelTransaction: (trxId: string) => Promise<boolean>;
@@ -118,14 +129,6 @@ interface AppState {
   approveCancelBySalesforce: (trxId: string) => Promise<boolean>;
   rejectCancelBySalesforce: (trxId: string) => Promise<boolean>;
 }
-
-const allTaps = [
-  'TAP-CIREBON',
-  'TAP-BANDUNG',
-  'TAP-JAKARTA',
-  'TAP-SEMARANG',
-  'TAP-SURABAYA',
-];
 
 async function readJson<T>(response: Response): Promise<T> {
   const data = await response.json();
@@ -168,6 +171,7 @@ export const useAppStore = create<AppState>((set, get) => {
       products: data.products,
       outlets: data.outlets,
       transactions: data.transactions,
+      taps: data.taps ?? [],
     });
   };
 
@@ -196,6 +200,7 @@ export const useAppStore = create<AppState>((set, get) => {
     products: [],
     outlets: [],
     transactions: [],
+    taps: [],
     hydrateFromServer: async () => {
       try {
         const response = await fetch('/api/session', { cache: 'no-store' });
@@ -272,6 +277,12 @@ export const useAppStore = create<AppState>((set, get) => {
     },
     addOutlet: (input) => postAction('addOutlet', input, 'Outlet berhasil ditambahkan'),
     updateOutlet: (outletId, input) => postAction('updateOutlet', { outletId, ...input }, 'Outlet berhasil diperbarui'),
+    addTap: (input) => postAction('addTap', input, 'TAP berhasil ditambahkan'),
+    updateTap: (tapId, input) => postAction('updateTap', { tapId, ...input }, 'TAP berhasil diperbarui'),
+    toggleTapActive: async (tapId) => {
+      const result = await postAction('toggleTapActive', { tapId }, 'Status TAP berhasil diperbarui');
+      return result.ok;
+    },
     submitTransaction: (input) => postAction('submitTransaction', { ...input, items: stripProductSnapshot(input.items) }, 'Transaksi berhasil disimpan'),
     requestCancelTransaction: async (trxId, _adminId, reason) => (await postAction('requestCancelTransaction', { trxId, reason }, 'Permintaan pembatalan dikirim')).ok,
     approveCancelTransaction: async (trxId) => (await postAction('approveCancelTransaction', { trxId }, 'Pembatalan disetujui')).ok,
@@ -281,5 +292,3 @@ export const useAppStore = create<AppState>((set, get) => {
     rejectCancelBySalesforce: async (trxId) => (await postAction('rejectCancelBySalesforce', { trxId }, 'Pengajuan pembatalan ditolak')).ok,
   };
 });
-
-export { allTaps };

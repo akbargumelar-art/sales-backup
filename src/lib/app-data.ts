@@ -1,7 +1,20 @@
 import type { Outlet, Transaction, User } from '@/types';
-import { allTaps, useAppStore } from '@/store/useAppStore';
+import { useAppStore } from '@/store/useAppStore';
 
-export { allTaps };
+export function getActiveTapCodes(): string[] {
+  return useAppStore.getState().taps.filter((tap) => tap.isActive).map((tap) => tap.kode);
+}
+
+export function getKnownTapCodes(): string[] {
+  const { taps, users, outlets } = useAppStore.getState();
+  const codes = new Set<string>(taps.map((tap) => tap.kode));
+  users.forEach((user) => {
+    codes.add(user.tap);
+    user.allowedTaps.filter((tap) => tap !== 'ALL').forEach((tap) => codes.add(tap));
+  });
+  outlets.forEach((outlet) => codes.add(outlet.tap));
+  return Array.from(codes);
+}
 
 export function canViewTap(user: User, tap: string): boolean {
   if (user.role === 'SUPER_ADMIN') return true;
@@ -10,8 +23,10 @@ export function canViewTap(user: User, tap: string): boolean {
 }
 
 export function getViewableTaps(user: User): string[] {
-  if (user.role === 'SUPER_ADMIN' || user.allowedTaps.includes('ALL')) return allTaps;
-  return user.allowedTaps;
+  const knownTaps = getKnownTapCodes();
+  if (user.role === 'SUPER_ADMIN' || user.allowedTaps.includes('ALL')) return knownTaps;
+  const viewable = user.allowedTaps.filter((tap) => knownTaps.includes(tap));
+  return viewable.length > 0 ? viewable : [user.tap];
 }
 
 export function getVisibleTransactions(user: User): Transaction[] {

@@ -6,7 +6,7 @@
 
 ## Ringkasan
 
-SalesTrack sekarang sudah menjadi aplikasi fullstack Next.js dengan backend API dan database MySQL melalui Prisma ORM. Data user, produk, outlet, transaksi, dan workflow pembatalan tidak lagi disimpan di browser/local storage.
+SalesTrack sekarang sudah menjadi aplikasi fullstack Next.js dengan backend API dan database MySQL melalui Prisma ORM. Data TAP, user, produk, outlet, transaksi, dan workflow pembatalan tidak lagi disimpan di browser/local storage.
 
 ---
 
@@ -14,15 +14,18 @@ SalesTrack sekarang sudah menjadi aplikasi fullstack Next.js dengan backend API 
 
 - Prisma schema untuk MySQL tersedia di `prisma/schema.prisma`
 - Initial migration tersedia di `prisma/migrations/20260430100000_init`
+- Migration master TAP tersedia di `prisma/migrations/20260430110000_add_taps`
 - Password user disimpan sebagai hash server-side
 - Login memakai session cookie HttpOnly
 - API backend tersedia untuk:
   - Setup admin awal
   - Login/logout/change password
   - Bootstrap data aplikasi
-  - CRUD user, outlet, produk
+  - CRUD TAP, user, outlet, produk
   - Submit transaksi
   - Workflow pembatalan transaksi
+- Master TAP tersedia di tabel `taps` dengan seed awal untuk TAP lama
+- Perubahan kode TAP otomatis memperbarui `user.tap`, `allowedTaps`, dan `outlet.tap`
 
 ---
 
@@ -32,6 +35,7 @@ SalesTrack sekarang sudah menjadi aplikasi fullstack Next.js dengan backend API 
 - Semua data aplikasi dimuat dari backend API
 - Halaman setup admin awal muncul jika database belum memiliki user
 - Manajemen user, outlet, produk, transaksi, laporan, dan export CSV tetap berjalan
+- Halaman `Kelola TAP` tersedia untuk Super Admin
 - Upload produk fisik memakai CSV dengan preview import
 
 ---

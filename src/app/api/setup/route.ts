@@ -20,6 +20,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: 'Data admin awal tidak valid' }, { status: 400 });
   }
 
+  const selectedTap = await prisma.tap.findUnique({ where: { kode: tap } });
+  if (!selectedTap || !selectedTap.isActive) {
+    return NextResponse.json({ message: 'TAP awal tidak valid' }, { status: 400 });
+  }
+
   const user = await prisma.user.create({
     data: {
       nama,

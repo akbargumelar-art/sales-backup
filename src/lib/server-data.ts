@@ -1,5 +1,5 @@
 import type { Prisma, User as DbUser } from '@prisma/client';
-import type { Product, Transaction, User } from '@/types';
+import type { Product, Tap, Transaction, User } from '@/types';
 import { prisma } from '@/lib/prisma';
 
 const transactionInclude = {
@@ -41,6 +41,17 @@ function mapProduct(product: Prisma.ProductGetPayload<Record<string, never>>): P
     minNominal: product.minNominal ?? undefined,
     createdAt: product.createdAt.toISOString(),
     updatedAt: product.updatedAt.toISOString(),
+  };
+}
+
+function mapTap(tap: Prisma.TapGetPayload<Record<string, never>>): Tap {
+  return {
+    id: tap.id,
+    kode: tap.kode,
+    nama: tap.nama,
+    isActive: tap.isActive,
+    createdAt: tap.createdAt.toISOString(),
+    updatedAt: tap.updatedAt.toISOString(),
   };
 }
 
@@ -90,7 +101,10 @@ function mapTransaction(transaction: Prisma.TransactionGetPayload<{ include: typ
 }
 
 export async function getBootstrapData(user: DbUser | null) {
-  const userCount = await prisma.user.count();
+  const [userCount, taps] = await Promise.all([
+    prisma.user.count(),
+    prisma.tap.findMany({ orderBy: { kode: 'asc' } }),
+  ]);
   if (!user) {
     return {
       hasSetup: userCount > 0,
@@ -99,6 +113,7 @@ export async function getBootstrapData(user: DbUser | null) {
       products: [],
       outlets: [],
       transactions: [],
+      taps: taps.map(mapTap),
     };
   }
 
@@ -129,5 +144,6 @@ export async function getBootstrapData(user: DbUser | null) {
       createdAt: outlet.createdAt.toISOString(),
     })),
     transactions: transactions.map(mapTransaction),
+    taps: taps.map(mapTap),
   };
 }

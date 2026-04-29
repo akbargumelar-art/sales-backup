@@ -23,6 +23,9 @@ export default function DesktopSidebar() {
   ];
 
   const adminNav = [
+    ...(user?.role === 'SUPER_ADMIN' ? [
+      { label: 'Kelola TAP', href: '/manage/taps', iconPath: 'M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 1 1 18 0z', extra: <><circle cx="12" cy="10" r="3"/></> },
+    ] : []),
     { label: 'Kelola Salesforce', href: '/manage/salesforce', iconPath: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2', extra: <><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></> },
     { label: 'Kelola Outlet', href: '/manage/outlets', iconPath: 'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z', extra: <><polyline points="9 22 9 12 15 12 15 22"/></> },
     { label: 'Kelola Produk', href: '/manage/products', iconPath: 'M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z' },

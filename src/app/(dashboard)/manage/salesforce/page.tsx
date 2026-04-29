@@ -2,12 +2,11 @@
 
 import { useState, useMemo } from 'react';
 import { useAppStore } from '@/store/useAppStore';
-import { allTaps } from '@/store/useAppStore';
 import { getViewableTaps } from '@/lib/app-data';
 import type { User } from '@/types';
 
 export default function ManageSalesforcePage() {
-  const { user: currentUser, users, showToast, addUser, updateUser, resetUserPassword } = useAppStore();
+  const { user: currentUser, users, taps, showToast, addUser, updateUser, resetUserPassword } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [filterTap, setFilterTap] = useState<string>('ALL');
   const [filterRole, setFilterRole] = useState<string>('ALL');
@@ -22,6 +21,10 @@ export default function ManageSalesforcePage() {
 
   const isSuper = currentUser?.role === 'SUPER_ADMIN';
   const viewableTaps = useMemo(() => currentUser ? getViewableTaps(currentUser) : [], [currentUser]);
+  const activeTapCodes = useMemo(() => taps.filter((tap) => tap.isActive).map((tap) => tap.kode), [taps]);
+  const assignableTaps = activeTapCodes.length > 0 ? activeTapCodes : viewableTaps;
+  const scopedAssignableTaps = currentUser?.role === 'SUPER_ADMIN' ? assignableTaps : viewableTaps.filter((tap) => assignableTaps.includes(tap));
+  const createTapOptions = scopedAssignableTaps.length > 0 ? scopedAssignableTaps : (currentUser ? [currentUser.tap] : []);
 
   const filteredUsers = useMemo(() => {
     return users.filter(u => {
@@ -205,7 +208,7 @@ export default function ManageSalesforcePage() {
       {showEditModal && editingUser && (
         <EditUserModal
           user={editingUser}
-          allTaps={viewableTaps}
+          tapOptions={Array.from(new Set([editingUser.tap, ...viewableTaps]))}
           isSuper={isSuper}
           onClose={() => setShowEditModal(false)}
           onSave={async (payload) => {
@@ -222,9 +225,9 @@ export default function ManageSalesforcePage() {
 
       {creatingUser && currentUser && (
         <CreateUserModal
-          allTaps={currentUser.role === 'SUPER_ADMIN' ? allTaps : viewableTaps}
+          tapOptions={createTapOptions}
           isSuper={isSuper}
-          defaultTap={currentUser.tap}
+          defaultTap={createTapOptions.includes(currentUser.tap) ? currentUser.tap : (createTapOptions[0] ?? currentUser.tap)}
           onClose={() => setCreatingUser(false)}
           onSave={async (payload) => {
             const result = await addUser(payload);
@@ -295,8 +298,8 @@ export default function ManageSalesforcePage() {
   );
 }
 
-function EditUserModal({ user, allTaps, isSuper, onClose, onSave }: {
-  user: User; allTaps: string[]; isSuper: boolean;
+function EditUserModal({ user, tapOptions, isSuper, onClose, onSave }: {
+  user: User; tapOptions: string[]; isSuper: boolean;
   onClose: () => void; onSave: (payload: {
     nama: string;
     username: string;
@@ -349,7 +352,7 @@ function EditUserModal({ user, allTaps, isSuper, onClose, onSave }: {
             <div>
               <label className="form-label">Home TAP</label>
               <select value={form.tap} onChange={e => setForm({...form, tap: e.target.value})} className="input-field">
-                {allTaps.map(t => <option key={t} value={t}>{t.replace('TAP-', '')}</option>)}
+                {tapOptions.map(t => <option key={t} value={t}>{t.replace('TAP-', '')}</option>)}
               </select>
             </div>
             <div>
@@ -371,7 +374,7 @@ function EditUserModal({ user, allTaps, isSuper, onClose, onSave }: {
                   <input type="checkbox" checked={form.allowedTaps.includes('ALL')} onChange={() => toggleTapAccess('ALL')} className="w-4 h-4 rounded accent-primary" />
                   <span className="text-body font-medium text-text-primary">Semua TAP</span>
                 </label>
-                {!form.allowedTaps.includes('ALL') && allTaps.map(tap => (
+                {!form.allowedTaps.includes('ALL') && tapOptions.map(tap => (
                   <label key={tap} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface cursor-pointer hover:bg-slate-100 transition-colors">
                     <input type="checkbox" checked={form.allowedTaps.includes(tap)} onChange={() => toggleTapAccess(tap)} className="w-4 h-4 rounded accent-primary" />
                     <span className="text-body text-text-primary">{tap}</span>
@@ -400,13 +403,13 @@ function EditUserModal({ user, allTaps, isSuper, onClose, onSave }: {
 }
 
 function CreateUserModal({
-  allTaps,
+  tapOptions,
   isSuper,
   defaultTap,
   onClose,
   onSave,
 }: {
-  allTaps: string[];
+  tapOptions: string[];
   isSuper: boolean;
   defaultTap: string;
   onClose: () => void;
@@ -466,7 +469,7 @@ function CreateUserModal({
             <div>
               <label className="form-label">Home TAP</label>
               <select value={form.tap} onChange={(e) => setForm((prev) => ({ ...prev, tap: e.target.value, allowedTaps: prev.role === 'SALESFORCE' ? [e.target.value] : prev.allowedTaps }))} className="input-field">
-                {allTaps.map((tap) => <option key={tap} value={tap}>{tap}</option>)}
+                {tapOptions.map((tap) => <option key={tap} value={tap}>{tap}</option>)}
               </select>
             </div>
             <div>
@@ -486,7 +489,7 @@ function CreateUserModal({
                   <input type="checkbox" checked={form.allowedTaps.includes('ALL')} onChange={() => toggleTapAccess('ALL')} className="w-4 h-4 rounded accent-primary" />
                   <span className="text-body font-medium text-text-primary">Semua TAP</span>
                 </label>
-                {!form.allowedTaps.includes('ALL') && allTaps.map((tap) => (
+                {!form.allowedTaps.includes('ALL') && tapOptions.map((tap) => (
                   <label key={tap} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface">
                     <input type="checkbox" checked={form.allowedTaps.includes(tap)} onChange={() => toggleTapAccess(tap)} className="w-4 h-4 rounded accent-primary" />
                     <span className="text-body text-text-primary">{tap}</span>

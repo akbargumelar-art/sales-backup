@@ -1,13 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/store/useAppStore';
-import { allTaps } from '@/store/useAppStore';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { hasSetup, user, hydrateFromServer, authenticateUser, initializeAdmin, hasHydrated } = useAppStore();
+  const { hasSetup, user, taps, hydrateFromServer, authenticateUser, initializeAdmin, hasHydrated } = useAppStore();
+  const setupTapOptions = useMemo(() => {
+    return taps.filter((tap) => tap.isActive).map((tap) => tap.kode);
+  }, [taps]);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -18,7 +20,7 @@ export default function LoginPage() {
     username: '',
     password: '',
     confirmPassword: '',
-    tap: allTaps[0],
+    tap: '',
   });
 
   const needsSetup = hasHydrated && !hasSetup;
@@ -31,6 +33,12 @@ export default function LoginPage() {
     if (!hasHydrated || !user) return;
     router.push(user.mustChangePassword ? '/change-password' : '/dashboard');
   }, [hasHydrated, router, user]);
+
+  useEffect(() => {
+    if (setupTapOptions.length === 0) return;
+    if (setupTapOptions.includes(setupForm.tap)) return;
+    setSetupForm((prev) => ({ ...prev, tap: setupTapOptions[0] }));
+  }, [setupForm.tap, setupTapOptions]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,7 +54,7 @@ export default function LoginPage() {
   const handleSetup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (!setupForm.nama || !setupForm.username || !setupForm.password) {
+    if (!setupForm.nama || !setupForm.username || !setupForm.password || !setupForm.tap) {
       setError('Semua field setup wajib diisi');
       return;
     }
@@ -143,8 +151,9 @@ export default function LoginPage() {
                 </div>
                 <div>
                   <label className="form-label">TAP Utama</label>
-                  <select value={setupForm.tap} onChange={(e) => setSetupForm((prev) => ({ ...prev, tap: e.target.value }))} className="input-field">
-                    {allTaps.map((tap) => <option key={tap} value={tap}>{tap}</option>)}
+                  <select value={setupForm.tap} onChange={(e) => setSetupForm((prev) => ({ ...prev, tap: e.target.value }))} className="input-field" disabled={setupTapOptions.length === 0}>
+                    {setupTapOptions.length === 0 && <option value="">Belum ada TAP aktif</option>}
+                    {setupTapOptions.map((tap) => <option key={tap} value={tap}>{tap}</option>)}
                   </select>
                 </div>
                 <div>
@@ -155,7 +164,7 @@ export default function LoginPage() {
                   <label className="form-label">Konfirmasi Password</label>
                   <input type="password" value={setupForm.confirmPassword} onChange={(e) => setSetupForm((prev) => ({ ...prev, confirmPassword: e.target.value }))} placeholder="Ulangi password admin" className="input-field" />
                 </div>
-                <button type="submit" className="btn-primary w-full">Simpan Setup Awal</button>
+                <button type="submit" className="btn-primary w-full disabled:opacity-60" disabled={setupTapOptions.length === 0}>Simpan Setup Awal</button>
               </form>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">

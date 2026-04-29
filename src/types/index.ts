@@ -27,6 +27,15 @@ export interface AdminPermission {
   canExportReport: boolean;
 }
 
+export interface Tap {
+  id: string;
+  kode: string;
+  nama: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ─── PRODUCT ──────────────────────────────────────────
 export type ProductBrand = 'LINKAJA' | 'FINPAY';
 

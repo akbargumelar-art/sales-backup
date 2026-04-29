@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { hashPassword } from '@/lib/password';
 import { getCurrentUser } from '@/lib/session';
@@ -12,6 +13,23 @@ const normalizeTaps = (taps: unknown, fallbackTap: string) => {
 };
 
 const requireAdmin = (role: string) => role === 'SUPER_ADMIN' || role === 'ADMIN';
+const requireSuperAdmin = (role: string) => role === 'SUPER_ADMIN';
+
+const normalizeTapCode = (value: unknown) => {
+  const raw = String(value ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  if (!raw) return '';
+  return raw.startsWith('TAP-') ? raw : `TAP-${raw}`;
+};
+
+const normalizeTapName = (value: unknown, kode: string) => {
+  const name = String(value ?? '').trim();
+  return name || kode.replace(/^TAP-/, '').replace(/-/g, ' ');
+};
 
 function generatePassword() {
   const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
@@ -91,6 +109,68 @@ export async function POST(request: Request) {
           ...(await getBootstrapData(currentUser)),
           newPassword,
         });
+      }
+      case 'addTap': {
+        if (!requireSuperAdmin(currentUser.role)) return NextResponse.json({ message: 'Akses ditolak' }, { status: 403 });
+        const kode = normalizeTapCode(payload.kode);
+        const nama = normalizeTapName(payload.nama, kode);
+        if (!kode || !nama) return NextResponse.json({ message: 'Kode dan nama TAP wajib diisi' }, { status: 400 });
+        await prisma.tap.create({
+          data: {
+            kode,
+            nama,
+            isActive: Boolean(payload.isActive ?? true),
+          },
+        });
+        break;
+      }
+      case 'updateTap': {
+        if (!requireSuperAdmin(currentUser.role)) return NextResponse.json({ message: 'Akses ditolak' }, { status: 403 });
+        const tapId = String(payload.tapId ?? '');
+        const kode = normalizeTapCode(payload.kode);
+        const nama = normalizeTapName(payload.nama, kode);
+        if (!tapId || !kode || !nama) return NextResponse.json({ message: 'Data TAP tidak valid' }, { status: 400 });
+
+        const existingTap = await prisma.tap.findUnique({ where: { id: tapId } });
+        if (!existingTap) return NextResponse.json({ message: 'TAP tidak ditemukan' }, { status: 404 });
+
+        const nextIsActive = Boolean(payload.isActive ?? true);
+        if (!nextIsActive) {
+          const otherActiveCount = await prisma.tap.count({ where: { isActive: true, NOT: { id: tapId } } });
+          if (otherActiveCount === 0) return NextResponse.json({ message: 'Minimal harus ada satu TAP aktif' }, { status: 400 });
+        }
+
+        await prisma.$transaction(async (tx) => {
+          await tx.tap.update({
+            where: { id: tapId },
+            data: { kode, nama, isActive: nextIsActive },
+          });
+
+          if (existingTap.kode !== kode) {
+            await tx.user.updateMany({ where: { tap: existingTap.kode }, data: { tap: kode } });
+            await tx.outlet.updateMany({ where: { tap: existingTap.kode }, data: { tap: kode } });
+
+            const users = await tx.user.findMany({ select: { id: true, allowedTaps: true } });
+            await Promise.all(users.map((userItem) => {
+              const allowedTaps = Array.isArray(userItem.allowedTaps) ? userItem.allowedTaps.map(String) : [];
+              if (!allowedTaps.includes(existingTap.kode)) return null;
+              const nextAllowedTaps = Array.from(new Set(allowedTaps.map((tap) => tap === existingTap.kode ? kode : tap)));
+              return tx.user.update({ where: { id: userItem.id }, data: { allowedTaps: nextAllowedTaps } });
+            }));
+          }
+        });
+        break;
+      }
+      case 'toggleTapActive': {
+        if (!requireSuperAdmin(currentUser.role)) return NextResponse.json({ message: 'Akses ditolak' }, { status: 403 });
+        const tap = await prisma.tap.findUnique({ where: { id: String(payload.tapId ?? '') } });
+        if (!tap) return NextResponse.json({ message: 'TAP tidak ditemukan' }, { status: 404 });
+        if (tap.isActive) {
+          const otherActiveCount = await prisma.tap.count({ where: { isActive: true, NOT: { id: tap.id } } });
+          if (otherActiveCount === 0) return NextResponse.json({ message: 'Minimal harus ada satu TAP aktif' }, { status: 400 });
+        }
+        await prisma.tap.update({ where: { id: tap.id }, data: { isActive: !tap.isActive } });
+        break;
       }
       case 'upsertProduct': {
         if (!requireAdmin(currentUser.role)) return NextResponse.json({ message: 'Akses ditolak' }, { status: 403 });
@@ -250,6 +330,9 @@ export async function POST(request: Request) {
     const refreshedUser = await prisma.user.findUnique({ where: { id: currentUser.id } });
     return NextResponse.json(await getBootstrapData(refreshedUser));
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return NextResponse.json({ message: 'Data dengan kode atau username tersebut sudah ada' }, { status: 409 });
+    }
     const message = error instanceof Error ? error.message : 'Terjadi kesalahan server';
     return NextResponse.json({ message }, { status: 500 });
   }
