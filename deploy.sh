@@ -44,9 +44,6 @@ git fetch origin "${BRANCH}"
 git checkout "${BRANCH}"
 git pull --ff-only origin "${BRANCH}"
 
-echo "[deploy] install dependency"
-npm install
-
 if [ ! -f .env ]; then
   if [ -f .env.example ]; then
     cp .env.example .env
@@ -55,6 +52,9 @@ if [ ! -f .env ]; then
   echo "[deploy] edit .env dan isi DATABASE_URL + NEXTAUTH_SECRET, lalu jalankan ulang bash deploy.sh"
   exit 1
 fi
+
+echo "[deploy] install dependency"
+npm install
 
 echo "[deploy] generate prisma client"
 npx prisma generate
