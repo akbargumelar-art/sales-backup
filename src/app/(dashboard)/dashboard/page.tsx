@@ -1,0 +1,378 @@
+'use client';
+
+import { useState, useMemo } from 'react';
+import Link from 'next/link';
+import { useAppStore } from '@/store/useAppStore';
+import { getVisibleTransactions, getSummaryForTransactions, getViewableTaps, getPendingCancelForSalesforce, getPendingCancelBySalesforceForAdmin, formatCurrency, formatDateTime, getStatusColor, getStatusLabel } from '@/lib/app-data';
+
+export default function DashboardPage() {
+  const { user, users, transactions } = useAppStore();
+  const [selectedTap, setSelectedTap] = useState<string>('ALL');
+  const [selectedSalesforce, setSelectedSalesforce] = useState<string>('ALL');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [showTapFilter, setShowTapFilter] = useState(false);
+  const [showSfFilter, setShowSfFilter] = useState(false);
+
+  const isAdminOrAbove = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
+  const viewableTaps = useMemo(() => user ? getViewableTaps(user) : [], [user]);
+  const allVisibleTrx = useMemo(() => {
+    void transactions;
+    return user ? getVisibleTransactions(user) : [];
+  }, [user, transactions]);
+
+  // Visible salesforces based on selected TAP
+  const visibleSalesforces = useMemo(() => {
+    if (!isAdminOrAbove || !user) return [];
+    return users.filter(u => {
+      if (u.role !== 'SALESFORCE') return false;
+      if (selectedTap !== 'ALL') return u.tap === selectedTap;
+      if (user.allowedTaps.includes('ALL')) return true;
+      return user.allowedTaps.includes(u.tap);
+    });
+  }, [isAdminOrAbove, user, selectedTap, users]);
+
+  // Apply all filters
+  const filteredTrx = useMemo(() => {
+    return allVisibleTrx.filter(t => {
+      if (selectedTap !== 'ALL' && t.outlet.tap !== selectedTap) return false;
+      if (selectedSalesforce !== 'ALL' && t.salesforceId !== selectedSalesforce) return false;
+      if (dateFrom) { const f = new Date(dateFrom); f.setHours(0, 0, 0, 0); if (new Date(t.submittedAt) < f) return false; }
+      if (dateTo) { const d = new Date(dateTo); d.setHours(23, 59, 59, 999); if (new Date(t.submittedAt) > d) return false; }
+      return true;
+    });
+  }, [allVisibleTrx, selectedTap, selectedSalesforce, dateFrom, dateTo]);
+
+  const summary = useMemo(() => getSummaryForTransactions(filteredTrx), [filteredTrx]);
+  const recentTrx = filteredTrx.slice(0, 5);
+
+  const activeFilterCount = [
+    dateFrom || dateTo ? 1 : 0,
+    selectedTap !== 'ALL' ? 1 : 0,
+    selectedSalesforce !== 'ALL' ? 1 : 0,
+  ].reduce((a, b) => a + b, 0);
+
+  const today = new Date();
+  const greeting = today.getHours() < 12 ? 'Selamat Pagi' : today.getHours() < 17 ? 'Selamat Siang' : 'Selamat Malam';
+
+  // Pending cancel notifications
+  const pendingCancelForSf = useMemo(() => {
+    void transactions;
+    return user?.role === 'SALESFORCE' ? getPendingCancelForSalesforce(user) : [];
+  }, [user, transactions]);
+  const pendingCancelBySfForAdmin = useMemo(() => {
+    void transactions;
+    return isAdminOrAbove && user ? getPendingCancelBySalesforceForAdmin(user) : [];
+  }, [isAdminOrAbove, user, transactions]);
+
+  return (
+    <div className="animate-fade-in">
+      {/* Welcome Section */}
+      <div className="bg-gradient-to-br from-secondary via-secondary to-slate-700 px-5 pt-5 pb-8 -mt-px">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-white/60 text-caption">{greeting} 👋</p>
+            <h2 className="text-white text-h1 mt-0.5">{user?.nama}</h2>
+            <div className="flex items-center gap-1.5 mt-1">
+              <span className="inline-block w-2 h-2 rounded-full bg-success animate-pulse-soft" />
+              <span className="text-white/50 text-caption">{user?.tap}</span>
+              {user?.role !== 'SALESFORCE' && (
+                <span className="text-white/30 text-[10px] ml-1">
+                  ({user?.allowedTaps?.includes('ALL') ? 'Semua TAP' : `${user?.allowedTaps?.length} TAP`})
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Filter toggle button */}
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`px-3 py-2 rounded-xl text-caption font-medium flex items-center gap-1.5 transition-colors relative ${
+              showFilters || activeFilterCount > 0
+                ? 'bg-white/20 text-white'
+                : 'bg-white/10 text-white/70 hover:bg-white/20'
+            }`}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+            </svg>
+            Filter
+            {activeFilterCount > 0 && (
+              <span className="w-4 h-4 rounded-full bg-primary text-white text-[9px] font-bold flex items-center justify-center ml-0.5">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Filter Panel */}
+      {showFilters && (
+        <div className="bg-white border-b border-border px-4 py-3 space-y-3 animate-slide-down shadow-sm">
+          {/* Date range */}
+          <div>
+            <label className="form-label">Rentang Tanggal</label>
+            <div className="grid grid-cols-2 gap-2">
+              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="input-field text-caption" />
+              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="input-field text-caption" />
+            </div>
+          </div>
+
+          {/* TAP filter (Admin/SuperAdmin with >1 TAP) */}
+          {isAdminOrAbove && viewableTaps.length > 1 && (
+            <div>
+              <label className="form-label">TAP</label>
+              <div className="relative">
+                <button
+                  onClick={() => setShowTapFilter(!showTapFilter)}
+                  className={`w-full input-field text-left flex items-center justify-between ${selectedTap !== 'ALL' ? 'text-primary font-medium' : ''}`}
+                >
+                  <span>{selectedTap === 'ALL' ? 'Semua TAP' : selectedTap}</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                {showTapFilter && (
+                  <>
+                    <div className="fixed inset-0 z-30" onClick={() => setShowTapFilter(false)} />
+                    <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-lg border border-border z-40 animate-scale-in overflow-hidden max-h-48 overflow-y-auto">
+                      <button onClick={() => { setSelectedTap('ALL'); setSelectedSalesforce('ALL'); setShowTapFilter(false); }} className={`w-full text-left px-4 py-2.5 text-body hover:bg-surface transition-colors ${selectedTap === 'ALL' ? 'bg-primary/5 text-primary font-medium' : 'text-text-primary'}`}>Semua TAP</button>
+                      {viewableTaps.map(tap => (
+                        <button key={tap} onClick={() => { setSelectedTap(tap); setSelectedSalesforce('ALL'); setShowTapFilter(false); }} className={`w-full text-left px-4 py-2.5 text-body hover:bg-surface transition-colors border-t border-border/50 ${selectedTap === tap ? 'bg-primary/5 text-primary font-medium' : 'text-text-primary'}`}>{tap}</button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Salesforce filter (Admin/SuperAdmin) */}
+          {isAdminOrAbove && (
+            <div>
+              <label className="form-label">Nama Salesforce</label>
+              <div className="relative">
+                <button
+                  onClick={() => setShowSfFilter(!showSfFilter)}
+                  className={`w-full input-field text-left flex items-center justify-between ${selectedSalesforce !== 'ALL' ? 'text-primary font-medium' : ''}`}
+                >
+                  <span>{selectedSalesforce === 'ALL' ? 'Semua Salesforce' : users.find(u => u.id === selectedSalesforce)?.nama || 'Pilih'}</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                {showSfFilter && (
+                  <>
+                    <div className="fixed inset-0 z-30" onClick={() => setShowSfFilter(false)} />
+                    <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-lg border border-border z-40 animate-scale-in overflow-hidden max-h-48 overflow-y-auto">
+                      <button onClick={() => { setSelectedSalesforce('ALL'); setShowSfFilter(false); }} className={`w-full text-left px-4 py-2.5 text-body hover:bg-surface transition-colors ${selectedSalesforce === 'ALL' ? 'bg-primary/5 text-primary font-medium' : 'text-text-primary'}`}>Semua Salesforce</button>
+                      {visibleSalesforces.map(sf => (
+                        <button key={sf.id} onClick={() => { setSelectedSalesforce(sf.id); setShowSfFilter(false); }} className={`w-full text-left px-4 py-2.5 hover:bg-surface transition-colors border-t border-border/50 ${selectedSalesforce === sf.id ? 'bg-primary/5 text-primary font-medium' : 'text-text-primary'}`}>
+                          <p className="text-body">{sf.nama}</p>
+                          <p className="text-[10px] text-text-secondary">{sf.tap} • @{sf.username}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 pt-1">
+            {activeFilterCount > 0 && (
+              <button
+                onClick={() => { setDateFrom(''); setDateTo(''); setSelectedTap('ALL'); setSelectedSalesforce('ALL'); }}
+                className="px-3 py-1.5 rounded-lg text-caption font-medium text-error hover:bg-red-50 transition-colors"
+              >
+                Reset
+              </button>
+            )}
+            <button onClick={() => setShowFilters(false)} className="ml-auto px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-caption font-medium">
+              Terapkan
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Summary Cards */}
+      <div className="px-4 -mt-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="card relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-primary/10 to-transparent rounded-bl-3xl" />
+            <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center mb-2">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E3000F" strokeWidth="2"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>
+            </div>
+            <p className="text-caption text-text-secondary">Total Transaksi</p>
+            <p className="text-h1 text-text-primary mt-0.5">{summary.totalTransaksi}</p>
+          </div>
+
+          <div className="card relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-success/10 to-transparent rounded-bl-3xl" />
+            <div className="w-9 h-9 rounded-xl bg-success/10 flex items-center justify-center mb-2">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16A34A" strokeWidth="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+            </div>
+            <p className="text-caption text-text-secondary">Total Omset</p>
+            <p className="text-h2 text-text-primary mt-0.5">{formatCurrency(summary.totalOmset)}</p>
+          </div>
+
+          <div className="card relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-accent/10 to-transparent rounded-bl-3xl" />
+            <div className="w-9 h-9 rounded-xl bg-accent/10 flex items-center justify-center mb-2">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FF6B00" strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+            </div>
+            <p className="text-caption text-text-secondary">Outlet Aktif</p>
+            <p className="text-h1 text-text-primary mt-0.5">{summary.totalOutlet}</p>
+          </div>
+
+          <div className="card relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-blue-500/10 to-transparent rounded-bl-3xl" />
+            <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center mb-2">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" strokeWidth="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+            </div>
+            <p className="text-caption text-text-secondary">Produk Terjual</p>
+            <p className="text-h1 text-text-primary mt-0.5">{summary.totalProdukTerjual}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Active filter chips */}
+      {activeFilterCount > 0 && (
+        <div className="px-4 mt-3 flex flex-wrap gap-2">
+          {(dateFrom || dateTo) && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/5 border border-primary/20 text-caption text-primary">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              {dateFrom && dateTo ? `${dateFrom} – ${dateTo}` : dateFrom ? `Dari ${dateFrom}` : `s/d ${dateTo}`}
+              <button onClick={() => { setDateFrom(''); setDateTo(''); }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+            </div>
+          )}
+          {selectedTap !== 'ALL' && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/5 border border-primary/20 text-caption text-primary">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+              {selectedTap.replace('TAP-', '')}
+              <button onClick={() => { setSelectedTap('ALL'); setSelectedSalesforce('ALL'); }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+            </div>
+          )}
+          {selectedSalesforce !== 'ALL' && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/5 border border-primary/20 text-caption text-primary">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              {users.find(u => u.id === selectedSalesforce)?.nama}
+              <button onClick={() => setSelectedSalesforce('ALL')}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Quick Actions */}
+      <div className="px-4 mt-5">
+        <div className="card bg-gradient-to-r from-primary to-primary-dark p-4 hover:shadow-none">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-white font-semibold text-body">Input Penjualan Baru</p>
+              <p className="text-white/60 text-caption mt-0.5">Catat transaksi harian Anda</p>
+            </div>
+            <Link href="/sales/new" className="px-4 py-2.5 bg-white rounded-xl text-primary font-semibold text-body hover:bg-white/90 transition-colors active:scale-95">
+              + Input
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {/* Pending Cancel Notification for SF (admin requested) */}
+      {pendingCancelForSf.length > 0 && (
+        <div className="px-4 mt-3">
+          <Link href="/dashboard/report">
+            <div className="card bg-amber-50 border border-amber-200 p-3.5 hover:bg-amber-100 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                </div>
+                <div className="flex-1">
+                  <p className="text-body font-semibold text-amber-800">{pendingCancelForSf.length} transaksi menunggu persetujuan pembatalan</p>
+                  <p className="text-caption text-amber-600 mt-0.5">Admin meminta pembatalan — perlu tindakan Anda</p>
+                </div>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+              </div>
+            </div>
+          </Link>
+        </div>
+      )}
+
+      {/* Pending Cancel Notification for Admin (SF requested) */}
+      {pendingCancelBySfForAdmin.length > 0 && (
+        <div className="px-4 mt-3">
+          <Link href="/dashboard/report">
+            <div className="card bg-blue-50 border border-blue-200 p-3.5 hover:bg-blue-100 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                </div>
+                <div className="flex-1">
+                  <p className="text-body font-semibold text-blue-800">{pendingCancelBySfForAdmin.length} pengajuan pembatalan dari Salesforce</p>
+                  <p className="text-caption text-blue-600 mt-0.5">Salesforce meminta pembatalan — menunggu persetujuan Anda</p>
+                </div>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+              </div>
+            </div>
+          </Link>
+        </div>
+      )}
+
+      {/* Recent Transactions */}
+      <div className="px-4 mt-5 mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-h2 text-text-primary">Transaksi Terbaru</h3>
+          <Link href="/dashboard/report" className="text-caption text-primary font-medium hover:underline">
+            Lihat Semua →
+          </Link>
+        </div>
+
+        {recentTrx.length === 0 ? (
+          <div className="card text-center py-8">
+            <div className="w-14 h-14 rounded-full bg-surface mx-auto flex items-center justify-center mb-3">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth="1.5"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/></svg>
+            </div>
+            <p className="text-body text-text-secondary">Belum ada transaksi</p>
+            {activeFilterCount > 0 && <p className="text-caption text-text-secondary/60 mt-0.5">Coba ubah filter yang aktif</p>}
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            {recentTrx.map((trx, index) => (
+              <Link key={trx.id} href={`/sales/${trx.id}`}>
+                <div className="card p-3.5 flex items-center gap-3 hover:border-primary/20 border border-transparent transition-all cursor-pointer" style={{ animationDelay: `${index * 80}ms` }}>
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${trx.status === 'COMPLETED' ? 'bg-success/10' : trx.status === 'CANCELLED' ? 'bg-red-50' : trx.status === 'PENDING_CANCEL' ? 'bg-amber-50' : 'bg-blue-50'}`}>
+                    {trx.status === 'COMPLETED' ? (
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16A34A" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                    ) : trx.status === 'CANCELLED' ? (
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#DC2626" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    ) : (
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <p className="text-body font-semibold text-text-primary truncate">{trx.outlet.namaOutlet}</p>
+                      <p className={`text-body font-bold shrink-0 ml-2 ${trx.status === 'CANCELLED' ? 'text-text-secondary line-through' : 'text-text-primary'}`}>{formatCurrency(trx.totalTagihan)}</p>
+                    </div>
+                    <div className="flex items-center justify-between mt-1">
+                      <div className="flex items-center gap-2">
+                        <p className="text-caption text-text-secondary">{trx.nomorTransaksi}</p>
+                        {isAdminOrAbove && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-text-secondary">{trx.outlet.tap.replace('TAP-', '')}</span>
+                        )}
+                      </div>
+                      <span className={getStatusColor(trx.status)}>{getStatusLabel(trx.status)}</span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <p className="text-[10px] text-text-secondary/60">{formatDateTime(trx.submittedAt)}</p>
+                      {isAdminOrAbove && (
+                        <p className="text-[10px] text-text-secondary/60">• {trx.salesforce.nama}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

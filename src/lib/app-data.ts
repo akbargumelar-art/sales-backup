@@ -1,0 +1,111 @@
+import type { Outlet, Transaction, User } from '@/types';
+import { allTaps, useAppStore } from '@/store/useAppStore';
+
+export { allTaps };
+
+export function authenticateUser(username: string, password: string): User | null {
+  return useAppStore.getState().authenticateUser(username, password);
+}
+
+export function resetUserPassword(targetUserId: string, requesterRole: string, requesterId: string) {
+  return useAppStore.getState().resetUserPassword(targetUserId, requesterRole as User['role'], requesterId);
+}
+
+export function canViewTap(user: User, tap: string): boolean {
+  if (user.role === 'SUPER_ADMIN') return true;
+  if (user.allowedTaps.includes('ALL')) return true;
+  return user.allowedTaps.includes(tap);
+}
+
+export function getViewableTaps(user: User): string[] {
+  if (user.role === 'SUPER_ADMIN' || user.allowedTaps.includes('ALL')) return allTaps;
+  return user.allowedTaps;
+}
+
+export function getVisibleTransactions(user: User): Transaction[] {
+  const { transactions } = useAppStore.getState();
+  if (user.role === 'SUPER_ADMIN' || user.allowedTaps.includes('ALL')) return transactions;
+  if (user.role === 'ADMIN') return transactions.filter((item) => user.allowedTaps.includes(item.outlet.tap));
+  return transactions.filter((item) => item.salesforceId === user.id);
+}
+
+export function getVisibleOutlets(user: User): Outlet[] {
+  const { outlets } = useAppStore.getState();
+  if (user.role === 'SUPER_ADMIN' || user.allowedTaps.includes('ALL')) return outlets;
+  if (user.role === 'ADMIN') return outlets.filter((item) => user.allowedTaps.includes(item.tap));
+  return outlets.filter((item) => item.tap === user.tap);
+}
+
+export function getPendingCancelForSalesforce(user: User): Transaction[] {
+  return useAppStore.getState().transactions.filter((item) => item.salesforceId === user.id && item.status === 'PENDING_CANCEL');
+}
+
+export function getPendingCancelBySalesforceForAdmin(user: User): Transaction[] {
+  return useAppStore.getState().transactions.filter((item) => {
+    if (item.status !== 'PENDING_CANCEL' || item.cancelInitiatedBy !== 'SALESFORCE') return false;
+    if (user.role === 'SUPER_ADMIN' || user.allowedTaps.includes('ALL')) return true;
+    return user.allowedTaps.includes(item.outlet.tap);
+  });
+}
+
+export function getSummaryForTransactions(trxList: Transaction[]) {
+  const completed = trxList.filter((item) => item.status === 'COMPLETED');
+  return {
+    totalTransaksi: trxList.length,
+    totalOmset: completed.reduce((sum, item) => sum + item.totalTagihan, 0),
+    totalOutlet: new Set(completed.map((item) => item.outletId)).size,
+    totalProdukTerjual: completed.reduce((sum, trx) => sum + trx.items.reduce((itemSum, item) => itemSum + item.kuantiti, 0), 0),
+  };
+}
+
+export function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat('id-ID', {
+    style: 'currency',
+    currency: 'IDR',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+export function formatDate(dateStr: string): string {
+  return new Intl.DateTimeFormat('id-ID', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(new Date(dateStr));
+}
+
+export function formatDateTime(dateStr: string): string {
+  return new Intl.DateTimeFormat('id-ID', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(dateStr));
+}
+
+export function formatShortDate(dateStr: string): string {
+  return new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short' }).format(new Date(dateStr));
+}
+
+export function getStatusColor(status: string): string {
+  const map: Record<string, string> = {
+    COMPLETED: 'badge-confirmed',
+    PENDING_CANCEL: 'badge-submitted',
+    CANCELLED: 'badge-cancelled',
+    DRAFT: 'badge-draft',
+  };
+  return map[status] || 'badge-draft';
+}
+
+export function getStatusLabel(status: string): string {
+  const map: Record<string, string> = {
+    COMPLETED: 'Selesai',
+    PENDING_CANCEL: 'Menunggu Persetujuan',
+    CANCELLED: 'Dibatalkan',
+    DRAFT: 'Draft',
+  };
+  return map[status] || status;
+}
