@@ -8,7 +8,6 @@ export interface User {
   id: string;
   username: string;
   nama: string;
-  password: string;            // plain text for mock only
   role: Role;
   tap: string;                 // Home TAP
   allowedTaps: string[];       // TAPs this user can view data from (set by Super Admin)

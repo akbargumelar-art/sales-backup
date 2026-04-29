@@ -31,7 +31,7 @@ const emptyItem = (): SalesLineItem => ({
 });
 
 export default function SalesNewPage() {
-  const { user, products, outlets, showToast, addOutlet, submitTransaction } = useAppStore();
+  const { user, products, showToast, addOutlet, submitTransaction } = useAppStore();
   const [selectedOutlet, setSelectedOutlet] = useState<Outlet | null>(null);
   const [outletSearch, setOutletSearch] = useState('');
   const [outletDropdownOpen, setOutletDropdownOpen] = useState(false);
@@ -160,7 +160,7 @@ export default function SalesNewPage() {
   const handleSubmit = async () => {
     setIsSubmitting(true);
     await new Promise(r => setTimeout(r, 400));
-    const result = user ? submitTransaction({
+    const result = user ? await submitTransaction({
       outletId: selectedOutlet!.id,
       salesforceId: user.id,
       ownerName: namaOwner,
@@ -433,13 +433,13 @@ export default function SalesNewPage() {
         <AddOutletModal
           userTap={user.tap}
           onClose={() => setShowAddOutlet(false)}
-          onSuccess={(payload) => {
-            const result = addOutlet(payload);
-            if (!result.ok || !result.outlet) {
+          onSuccess={async (payload) => {
+            const result = await addOutlet(payload);
+            if (!result.ok || !result.data?.outlet) {
               showToast(result.message, 'error');
               return;
             }
-            selectOutlet(result.outlet);
+            selectOutlet(result.data.outlet);
             setShowAddOutlet(false);
             showToast('Outlet berhasil ditambahkan', 'success');
           }}

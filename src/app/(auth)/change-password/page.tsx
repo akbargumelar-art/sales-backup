@@ -1,18 +1,26 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/store/useAppStore';
 
 export default function ChangePasswordPage() {
   const router = useRouter();
-  const { user, updateOwnPassword, showToast } = useAppStore();
+  const { user, hasHydrated, hydrateFromServer, updateOwnPassword, showToast } = useAppStore();
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    hydrateFromServer();
+  }, [hydrateFromServer]);
+
+  useEffect(() => {
+    if (hasHydrated && !user) router.push('/login');
+  }, [hasHydrated, router, user]);
 
   const validatePassword = () => {
     if (newPassword.length < 8) return 'Password minimal 8 karakter';
@@ -30,7 +38,7 @@ export default function ChangePasswordPage() {
     setIsLoading(true);
     await new Promise(r => setTimeout(r, 1000));
     if (user) {
-      updateOwnPassword(user.id, newPassword);
+      await updateOwnPassword(user.id, newPassword);
     }
     showToast('Password berhasil diubah!', 'success');
     router.push('/dashboard');

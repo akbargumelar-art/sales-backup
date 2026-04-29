@@ -6,65 +6,61 @@
 
 ## Ringkasan
 
-Aplikasi saat ini sudah tidak memakai mock transaction, mock outlet, mock produk, atau akun demo bawaan. Data aplikasi disimpan persisten di browser melalui Zustand persist, sehingga cocok untuk demo operasional lokal tanpa backend.
-
-Pada first run, aplikasi meminta setup admin awal. Setelah itu user, outlet, produk, dan transaksi dikelola dari UI aplikasi.
+SalesTrack sekarang sudah menjadi aplikasi fullstack Next.js dengan backend API dan database MySQL melalui Prisma ORM. Data user, produk, outlet, transaksi, dan workflow pembatalan tidak lagi disimpan di browser/local storage.
 
 ---
 
-## Fitur Aktif
+## Backend Production
 
-### Autentikasi
-- Login memakai data user yang tersimpan di aplikasi
-- Setup admin awal saat data user belum ada
-- Ganti password tersimpan permanen
-- Auth guard untuk route dashboard
-
-### Dashboard dan Laporan
-- Summary transaksi, omset, outlet aktif, dan produk terjual
-- Filter tanggal, TAP, dan salesforce
-- Workflow pembatalan transaksi Admin <-> Salesforce
-- Export laporan CSV dari halaman laporan
-
-### Input Penjualan
-- Pilih outlet sesuai akses user
-- Tambah outlet manual langsung dari form penjualan
-- Dukungan produk virtual nominal dan produk fisik
-- Validasi owner outlet
-- Submit transaksi tersimpan permanen
-
-### Kelola Produk
-- Tambah dan edit produk
-- Toggle aktif/nonaktif
-- Dukungan konfigurasi produk virtual nominal
-- Upload massal produk fisik via file CSV dengan preview import
-
-### Kelola Outlet
-- List, filter, tambah, dan edit outlet
-
-### Kelola User
-- List, filter, tambah, edit user
-- Reset password user
-- Atur akses TAP untuk admin/super admin
-
-### Operasional
-- `deploy.sh` untuk update aplikasi dari GitHub di VPS
-- `npm run lint` dan `npm run build` lulus
+- Prisma schema untuk MySQL tersedia di `prisma/schema.prisma`
+- Initial migration tersedia di `prisma/migrations/20260430100000_init`
+- Password user disimpan sebagai hash server-side
+- Login memakai session cookie HttpOnly
+- API backend tersedia untuk:
+  - Setup admin awal
+  - Login/logout/change password
+  - Bootstrap data aplikasi
+  - CRUD user, outlet, produk
+  - Submit transaksi
+  - Workflow pembatalan transaksi
 
 ---
 
-## Catatan Teknis
+## Frontend
 
-- Penyimpanan data saat ini masih frontend-local persistence, belum database server
-- Tidak ada dependensi Excel saat ini, import produk fisik menggunakan CSV
-- Barcode scanner fisik masih belum diimplementasikan
+- Zustand sekarang dipakai sebagai cache/state UI, bukan sumber data utama
+- Semua data aplikasi dimuat dari backend API
+- Halaman setup admin awal muncul jika database belum memiliki user
+- Manajemen user, outlet, produk, transaksi, laporan, dan export CSV tetap berjalan
+- Upload produk fisik memakai CSV dengan preview import
 
 ---
 
-## Gap yang Masih Tersisa
+## Deployment
 
-- Backend/database production
-- Upload Excel native
-- Scanner barcode kamera
-- Audit log dan webhook
-- Manajemen pengaturan aplikasi yang lebih lengkap
+- `deploy.sh` otomatis:
+  - Pull update dari GitHub
+  - Install dependency
+  - Validasi `.env`
+  - Generate Prisma client
+  - Jalankan `prisma migrate deploy`
+  - Build Next.js
+  - Cari port kosong dan start/restart PM2
+- `.env.example` sudah tersedia untuk konfigurasi VPS
+
+---
+
+## Verifikasi
+
+- `npx tsc --noEmit` sukses
+- `npm run lint` sukses
+- `npm run build` sukses
+
+---
+
+## Gap Tersisa
+
+- Import Excel native masih belum ada, saat ini CSV
+- Barcode scanner kamera belum diimplementasikan
+- Webhook eksternal belum diimplementasikan
+- Audit log detail belum diimplementasikan

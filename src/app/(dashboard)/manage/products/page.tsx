@@ -42,8 +42,8 @@ export default function ManageProductsPage() {
     [filterKategori, products],
   );
 
-  const handleToggle = (product: Product) => {
-    if (!toggleProductActive(product.id)) return;
+  const handleToggle = async (product: Product) => {
+    if (!(await toggleProductActive(product.id))) return;
     showToast(`Produk ${product.namaProduk} ${product.isActive ? 'dinonaktifkan' : 'diaktifkan'}`, 'success');
   };
 
@@ -78,17 +78,17 @@ export default function ManageProductsPage() {
     setShowImport(true);
   };
 
-  const confirmImport = () => {
+  const confirmImport = async () => {
     const failures: string[] = [];
-    importRows.forEach((row) => {
-      const result = upsertProduct(null, {
+    for (const row of importRows) {
+      const result = await upsertProduct(null, {
         kode: row.kode,
         kategori: 'FISIK',
         namaProduk: row.namaProduk,
         harga: Number(row.harga.replace(/\D/g, '')) || 0,
       });
       if (!result.ok) failures.push(result.message);
-    });
+    }
     if (failures.length > 0) {
       showToast(failures[0], 'error');
       return;
@@ -183,8 +183,8 @@ export default function ManageProductsPage() {
         <ProductModal
           product={editingProduct}
           onClose={() => setShowForm(false)}
-          onSave={(payload) => {
-            const result = upsertProduct(editingProduct?.id ?? null, payload);
+          onSave={async (payload) => {
+            const result = await upsertProduct(editingProduct?.id ?? null, payload);
             if (!result.ok) {
               showToast(result.message, 'error');
               return;

@@ -3,14 +3,6 @@ import { allTaps, useAppStore } from '@/store/useAppStore';
 
 export { allTaps };
 
-export function authenticateUser(username: string, password: string): User | null {
-  return useAppStore.getState().authenticateUser(username, password);
-}
-
-export function resetUserPassword(targetUserId: string, requesterRole: string, requesterId: string) {
-  return useAppStore.getState().resetUserPassword(targetUserId, requesterRole as User['role'], requesterId);
-}
-
 export function canViewTap(user: User, tap: string): boolean {
   if (user.role === 'SUPER_ADMIN') return true;
   if (user.allowedTaps.includes('ALL')) return true;

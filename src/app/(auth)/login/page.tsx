@@ -1,14 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/store/useAppStore';
 import { allTaps } from '@/store/useAppStore';
-import { authenticateUser } from '@/lib/app-data';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, users, initializeAdmin, hasHydrated } = useAppStore();
+  const { hasSetup, user, hydrateFromServer, authenticateUser, initializeAdmin, hasHydrated } = useAppStore();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -22,25 +21,29 @@ export default function LoginPage() {
     tap: allTaps[0],
   });
 
-  const needsSetup = hasHydrated && users.length === 0;
+  const needsSetup = hasHydrated && !hasSetup;
+
+  useEffect(() => {
+    hydrateFromServer();
+  }, [hydrateFromServer]);
+
+  useEffect(() => {
+    if (!hasHydrated || !user) return;
+    router.push(user.mustChangePassword ? '/change-password' : '/dashboard');
+  }, [hasHydrated, router, user]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     if (!username || !password) { setError('Username dan password wajib diisi'); return; }
     setIsLoading(true);
-    await new Promise(r => setTimeout(r, 800));
-    const user = authenticateUser(username, password);
-    if (!user) { setError('Username atau password salah'); setIsLoading(false); return; }
-    login(user);
-    if (user.mustChangePassword) {
-      router.push('/change-password');
-    } else {
-      router.push('/dashboard');
-    }
+    const loggedInUser = await authenticateUser(username, password);
+    setIsLoading(false);
+    if (!loggedInUser) { setError('Username atau password salah'); return; }
+    router.push(loggedInUser.mustChangePassword ? '/change-password' : '/dashboard');
   };
 
-  const handleSetup = (e: React.FormEvent) => {
+  const handleSetup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     if (!setupForm.nama || !setupForm.username || !setupForm.password) {
@@ -55,7 +58,7 @@ export default function LoginPage() {
       setError('Konfirmasi password admin tidak cocok');
       return;
     }
-    const ok = initializeAdmin({
+    const ok = await initializeAdmin({
       nama: setupForm.nama,
       username: setupForm.username,
       password: setupForm.password,
@@ -66,8 +69,7 @@ export default function LoginPage() {
       return;
     }
     setError('');
-    setUsername(setupForm.username);
-    setPassword(setupForm.password);
+    router.push('/dashboard');
   };
 
   if (!hasHydrated) {

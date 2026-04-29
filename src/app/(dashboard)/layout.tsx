@@ -10,7 +10,11 @@ import Toast from '@/components/ui/Toast';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { isLoggedIn, mustChangePassword, hasHydrated } = useAppStore();
+  const { isLoggedIn, mustChangePassword, hasHydrated, hydrateFromServer } = useAppStore();
+
+  useEffect(() => {
+    hydrateFromServer();
+  }, [hydrateFromServer]);
 
   useEffect(() => {
     if (!hasHydrated) return;

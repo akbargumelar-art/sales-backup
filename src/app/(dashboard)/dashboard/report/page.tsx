@@ -84,37 +84,37 @@ export default function ReportPage() {
   const activeFilterCount = [dateFrom || dateTo ? 1 : 0, selectedTap !== 'ALL' ? 1 : 0, selectedSalesforce !== 'ALL' ? 1 : 0].reduce((a, b) => a + b, 0);
 
   // Admin submits cancel request → SF must approve
-  const handleAdminRequestCancel = useCallback(() => {
+  const handleAdminRequestCancel = useCallback(async () => {
     if (!cancelModal || !cancelReason.trim() || !user) return;
-    const ok = requestCancelTransaction(cancelModal.trxId, user.id, cancelReason.trim());
+    const ok = await requestCancelTransaction(cancelModal.trxId, user.id, cancelReason.trim());
     if (ok) { showToast('Permintaan pembatalan dikirim ke Salesforce', 'success'); }
     else showToast('Gagal mengirim permintaan', 'error');
     setCancelModal(null); setCancelReason('');
   }, [cancelModal, cancelReason, requestCancelTransaction, user, showToast]);
 
   // SF submits cancel request → Admin must approve
-  const handleSfRequestCancel = useCallback(() => {
+  const handleSfRequestCancel = useCallback(async () => {
     if (!cancelModal || !cancelReason.trim() || !user) return;
-    const ok = requestCancelBySalesforce(cancelModal.trxId, user.id, cancelReason.trim());
+    const ok = await requestCancelBySalesforce(cancelModal.trxId, user.id, cancelReason.trim());
     if (ok) { showToast('Pengajuan pembatalan dikirim ke Admin untuk disetujui', 'success'); }
     else showToast('Gagal mengajukan pembatalan', 'error');
     setCancelModal(null); setCancelReason('');
   }, [cancelModal, cancelReason, requestCancelBySalesforce, user, showToast]);
 
   // SF: approve/reject admin's cancel request
-  const handleSfApprove = useCallback((trxId: string) => {
-    if (approveCancelTransaction(trxId)) { showToast('Pembatalan disetujui', 'warning'); }
+  const handleSfApprove = useCallback(async (trxId: string) => {
+    if (await approveCancelTransaction(trxId)) { showToast('Pembatalan disetujui', 'warning'); }
   }, [approveCancelTransaction, showToast]);
-  const handleSfReject = useCallback((trxId: string) => {
-    if (rejectCancelTransaction(trxId)) { showToast('Pembatalan ditolak, transaksi kembali Selesai', 'success'); }
+  const handleSfReject = useCallback(async (trxId: string) => {
+    if (await rejectCancelTransaction(trxId)) { showToast('Pembatalan ditolak, transaksi kembali Selesai', 'success'); }
   }, [rejectCancelTransaction, showToast]);
 
   // Admin: approve/reject SF's cancel request
-  const handleAdminApprove = useCallback((trxId: string) => {
-    if (approveCancelBySalesforce(trxId)) { showToast('Pembatalan Salesforce disetujui', 'warning'); }
+  const handleAdminApprove = useCallback(async (trxId: string) => {
+    if (await approveCancelBySalesforce(trxId)) { showToast('Pembatalan Salesforce disetujui', 'warning'); }
   }, [approveCancelBySalesforce, showToast]);
-  const handleAdminReject = useCallback((trxId: string) => {
-    if (rejectCancelBySalesforce(trxId)) { showToast('Pengajuan pembatalan ditolak, transaksi kembali Selesai', 'success'); }
+  const handleAdminReject = useCallback(async (trxId: string) => {
+    if (await rejectCancelBySalesforce(trxId)) { showToast('Pengajuan pembatalan ditolak, transaksi kembali Selesai', 'success'); }
   }, [rejectCancelBySalesforce, showToast]);
 
   const openModal = (trxId: string, initiator: 'ADMIN' | 'SALESFORCE') => {

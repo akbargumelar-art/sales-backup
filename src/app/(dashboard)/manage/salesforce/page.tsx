@@ -54,9 +54,9 @@ export default function ManageSalesforcePage() {
     setCopied(false);
   };
 
-  const confirmReset = () => {
+  const confirmReset = async () => {
     if (!resetTarget || !currentUser) return;
-    const result = resetUserPassword(resetTarget.id, currentUser.role, currentUser.id);
+    const result = await resetUserPassword(resetTarget.id, currentUser.role, currentUser.id);
     if (result) {
       setResetResult(result.newPassword);
     } else {
@@ -208,8 +208,8 @@ export default function ManageSalesforcePage() {
           allTaps={viewableTaps}
           isSuper={isSuper}
           onClose={() => setShowEditModal(false)}
-          onSave={(payload) => {
-            const result = updateUser(editingUser.id, payload);
+          onSave={async (payload) => {
+            const result = await updateUser(editingUser.id, payload);
             if (!result.ok) {
               showToast(result.message, 'error');
               return;
@@ -226,8 +226,8 @@ export default function ManageSalesforcePage() {
           isSuper={isSuper}
           defaultTap={currentUser.tap}
           onClose={() => setCreatingUser(false)}
-          onSave={(payload) => {
-            const result = addUser(payload);
+          onSave={async (payload) => {
+            const result = await addUser(payload);
             if (!result.ok) {
               showToast(result.message, 'error');
               return;

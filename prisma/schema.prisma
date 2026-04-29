@@ -1,0 +1,136 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  SALESFORCE
+}
+
+enum ProductCategory {
+  VIRTUAL
+  FISIK
+}
+
+enum ProductBrand {
+  LINKAJA
+  FINPAY
+}
+
+enum TransactionStatus {
+  COMPLETED
+  PENDING_CANCEL
+  CANCELLED
+}
+
+enum CancelInitiator {
+  ADMIN
+  SALESFORCE
+}
+
+model User {
+  id                 String        @id @default(cuid())
+  username           String        @unique
+  nama               String
+  passwordHash       String
+  role               Role          @default(SALESFORCE)
+  tap                String
+  allowedTaps        Json
+  isActive           Boolean       @default(true)
+  mustChangePassword Boolean       @default(true)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  transactions       Transaction[]
+
+  @@index([role])
+  @@index([tap])
+  @@map("users")
+}
+
+model Product {
+  id               String            @id @default(cuid())
+  kode             String            @unique
+  kategori         ProductCategory
+  namaProduk       String
+  harga            Int               @default(0)
+  isActive         Boolean           @default(true)
+  isVirtualNominal Boolean           @default(false)
+  brand            ProductBrand?
+  adminFee         Int?
+  minNominal       Int?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  transactionItems TransactionItem[]
+
+  @@index([kategori])
+  @@map("products")
+}
+
+model Outlet {
+  id           String        @id @default(cuid())
+  idOutlet     String        @unique
+  nomorRS      String
+  namaOutlet   String
+  tap          String
+  kabupaten    String
+  kecamatan    String
+  isManual     Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  transactions Transaction[]
+
+  @@index([tap])
+  @@map("outlets")
+}
+
+model Transaction {
+  id                String             @id @default(cuid())
+  nomorTransaksi    String             @unique
+  outletId          String
+  outlet            Outlet             @relation(fields: [outletId], references: [id])
+  salesforceId      String
+  salesforce        User               @relation(fields: [salesforceId], references: [id])
+  status            TransactionStatus  @default(COMPLETED)
+  totalTagihan      Int
+  ownerName         String
+  ownerPhone        String
+  catatan           String?            @db.Text
+  submittedAt       DateTime           @default(now())
+  confirmedAt       DateTime?
+  cancelReason      String?            @db.Text
+  cancelRequestedBy String?
+  cancelRequestedAt DateTime?
+  cancelApprovedAt  DateTime?
+  cancelInitiatedBy CancelInitiator?
+  items             TransactionItem[]
+
+  @@index([salesforceId])
+  @@index([outletId])
+  @@index([status])
+  @@index([submittedAt])
+  @@map("transactions")
+}
+
+model TransactionItem {
+  id             String      @id @default(cuid())
+  transactionId  String
+  transaction    Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product     @relation(fields: [productId], references: [id])
+  hargaSatuan    Int
+  kuantiti       Int
+  subTotal       Int
+  snAwal         String?
+  snAkhir        String?
+  serialNumbers  Json?
+
+  @@index([transactionId])
+  @@index([productId])
+  @@map("transaction_items")
+}

@@ -117,10 +117,10 @@ export default function ManageOutletsPage() {
           taps={user.role === 'SALESFORCE' ? [user.tap] : viewableTaps}
           defaultTap={editingOutlet?.tap ?? user.tap}
           onClose={() => setShowModal(false)}
-          onSave={(payload) => {
+          onSave={async (payload) => {
             const result = editingOutlet
-              ? updateOutlet(editingOutlet.id, payload)
-              : addOutlet(payload);
+              ? await updateOutlet(editingOutlet.id, payload)
+              : await addOutlet(payload);
             if (!result.ok) {
               showToast(result.message, 'error');
               return;
