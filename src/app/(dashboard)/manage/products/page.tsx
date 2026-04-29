@@ -3,6 +3,7 @@
 import { ChangeEvent, useMemo, useState } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { formatCurrency } from '@/lib/app-data';
+import { downloadCsv, parseBoolean, parseCsv, parseNumber } from '@/lib/csv';
 import type { Product } from '@/types';
 
 type ProductFormState = {
@@ -27,13 +28,36 @@ const emptyForm: ProductFormState = {
   minNominal: '20000',
 };
 
+type ProductImportRow = {
+  kode: string;
+  kategori: 'VIRTUAL' | 'FISIK';
+  namaProduk: string;
+  harga: number;
+  isActive: boolean;
+  isVirtualNominal: boolean;
+  brand?: 'LINKAJA' | 'FINPAY';
+  adminFee?: number;
+  minNominal?: number;
+};
+
+const productCsvHeaders = ['kode', 'kategori', 'namaProduk', 'harga', 'isActive', 'isVirtualNominal', 'brand', 'adminFee', 'minNominal'];
+
+const normalizeProductCategory = (value: string | undefined): 'VIRTUAL' | 'FISIK' => (
+  String(value ?? '').trim().toUpperCase() === 'VIRTUAL' ? 'VIRTUAL' : 'FISIK'
+);
+
+const normalizeProductBrand = (value: string | undefined): 'LINKAJA' | 'FINPAY' | undefined => {
+  const normalized = String(value ?? '').trim().toUpperCase();
+  return normalized === 'LINKAJA' || normalized === 'FINPAY' ? normalized : undefined;
+};
+
 export default function ManageProductsPage() {
   const { user, products, showToast, upsertProduct, toggleProductActive } = useAppStore();
   const [filterKategori, setFilterKategori] = useState<'ALL' | 'VIRTUAL' | 'FISIK'>('ALL');
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  const [importRows, setImportRows] = useState<ProductFormState[]>([]);
+  const [importRows, setImportRows] = useState<ProductImportRow[]>([]);
 
   const isAdminOrAbove = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
 
@@ -47,31 +71,62 @@ export default function ManageProductsPage() {
     showToast(`Produk ${product.namaProduk} ${product.isActive ? 'dinonaktifkan' : 'diaktifkan'}`, 'success');
   };
 
+  const handleDownloadData = () => {
+    if (filtered.length === 0) {
+      showToast('Tidak ada data produk untuk didownload', 'warning');
+      return;
+    }
+    downloadCsv(
+      `produk-${new Date().toISOString().slice(0, 10)}.csv`,
+      productCsvHeaders,
+      filtered.map((product) => [
+        product.kode,
+        product.kategori,
+        product.namaProduk,
+        product.harga,
+        product.isActive,
+        Boolean(product.isVirtualNominal),
+        product.brand ?? '',
+        product.adminFee ?? '',
+        product.minNominal ?? '',
+      ]),
+    );
+    showToast('Download data produk berhasil', 'success');
+  };
+
+  const handleDownloadTemplate = () => {
+    downloadCsv('template-produk.csv', productCsvHeaders, [
+      ['FIS-001', 'FISIK', 'Perdana Telkomsel', 5000, true, false, '', '', ''],
+      ['VIR-LINKAJA', 'VIRTUAL', 'LinkAja Nominal Bebas', 0, true, true, 'LINKAJA', 2000, 20000],
+    ]);
+  };
+
   const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
-    const raw = await file.text();
-    const rows = raw
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
-    if (rows.length <= 1) {
+    const rows = parseCsv(await file.text());
+    if (rows.length === 0) {
       showToast('File import kosong atau tidak valid', 'error');
       return;
     }
-    const parsed = rows.slice(1).map((row) => {
-      const [kode = '', namaProduk = '', harga = '0'] = row.split(',').map((part) => part.trim());
+    const parsed = rows.map((row) => {
+      const kategori = normalizeProductCategory(row.kategori);
+      const isVirtualNominal = kategori === 'VIRTUAL' ? parseBoolean(row.isVirtualNominal, true) : false;
       return {
-        ...emptyForm,
-        kode,
-        kategori: 'FISIK' as const,
-        namaProduk,
-        harga,
+        kode: String(row.kode ?? '').trim().toUpperCase(),
+        kategori,
+        namaProduk: String(row.namaProduk ?? '').trim(),
+        harga: kategori === 'FISIK' ? parseNumber(row.harga) : 0,
+        isActive: parseBoolean(row.isActive, true),
+        isVirtualNominal,
+        brand: normalizeProductBrand(row.brand),
+        adminFee: isVirtualNominal ? parseNumber(row.adminFee) : undefined,
+        minNominal: isVirtualNominal ? parseNumber(row.minNominal, 20000) : undefined,
       };
     }).filter((row) => row.kode && row.namaProduk);
     if (parsed.length === 0) {
-      showToast('Tidak ada data produk fisik yang terbaca', 'error');
+      showToast('Tidak ada data produk yang terbaca', 'error');
       return;
     }
     setImportRows(parsed);
@@ -81,21 +136,27 @@ export default function ManageProductsPage() {
   const confirmImport = async () => {
     const failures: string[] = [];
     for (const row of importRows) {
-      const result = await upsertProduct(null, {
+      const existing = products.find((product) => product.kode.toUpperCase() === row.kode.toUpperCase());
+      const result = await upsertProduct(existing?.id ?? null, {
         kode: row.kode,
-        kategori: 'FISIK',
+        kategori: row.kategori,
         namaProduk: row.namaProduk,
-        harga: Number(row.harga.replace(/\D/g, '')) || 0,
+        harga: row.harga,
+        isActive: row.isActive,
+        isVirtualNominal: row.isVirtualNominal,
+        brand: row.brand,
+        adminFee: row.adminFee,
+        minNominal: row.minNominal,
       });
-      if (!result.ok) failures.push(result.message);
+      if (!result.ok) failures.push(`${row.kode}: ${result.message}`);
     }
     if (failures.length > 0) {
-      showToast(failures[0], 'error');
+      showToast(`${failures.length} baris gagal. ${failures[0]}`, 'error');
       return;
     }
     setShowImport(false);
     setImportRows([]);
-    showToast('Import produk fisik berhasil', 'success');
+    showToast(`${importRows.length} produk berhasil diupload`, 'success');
   };
 
   return (
@@ -107,9 +168,15 @@ export default function ManageProductsPage() {
             <p className="text-caption text-text-secondary">{filtered.length} produk</p>
           </div>
           {isAdminOrAbove && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center justify-end gap-2 flex-wrap">
+              <button onClick={handleDownloadTemplate} className="px-3 py-2 rounded-xl bg-surface text-text-secondary text-caption font-semibold hover:bg-slate-100 transition-colors">
+                Template CSV
+              </button>
+              <button onClick={handleDownloadData} className="px-3 py-2 rounded-xl bg-success/10 text-success text-caption font-semibold hover:bg-success/20 transition-colors">
+                Download Data
+              </button>
               <label className="px-3 py-2 rounded-xl bg-surface text-text-secondary text-caption font-semibold cursor-pointer hover:bg-slate-100 transition-colors">
-                Upload Produk Fisik
+                Upload Data
                 <input type="file" accept=".csv,text/csv" onChange={handleImportFile} className="hidden" />
               </label>
               <button onClick={() => { setEditingProduct(null); setShowForm(true); }} className="px-3 py-2 rounded-xl bg-primary text-white text-caption font-semibold">
@@ -121,11 +188,6 @@ export default function ManageProductsPage() {
       </div>
 
       <div className="p-4 space-y-3">
-        <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-caption text-blue-700">
-          <p className="font-semibold mb-1">Template upload produk fisik</p>
-          <p>Gunakan CSV dengan header `kode,namaProduk,harga`. Contoh: `FIS-001,Perdana Telkomsel,5000`.</p>
-        </div>
-
         <div className="flex gap-2">
           {(['ALL', 'VIRTUAL', 'FISIK'] as const).map((item) => (
             <button key={item} onClick={() => setFilterKategori(item)} className={`px-3 py-1.5 rounded-lg text-caption font-medium transition-colors ${filterKategori === item ? 'bg-primary/10 text-primary' : 'bg-surface text-text-secondary hover:bg-slate-100'}`}>
@@ -199,19 +261,24 @@ export default function ManageProductsPage() {
         <div className="overlay" onClick={() => setShowImport(false)}>
           <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-mobile lg:max-w-2xl lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2 bg-white rounded-t-2xl lg:rounded-2xl p-5 z-50 animate-slide-up max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="w-10 h-1 rounded-full bg-border mx-auto mb-4 lg:hidden" />
-            <h3 className="text-h2 text-text-primary mb-1">Preview Import Produk Fisik</h3>
-            <p className="text-caption text-text-secondary mb-4">{importRows.length} baris siap diimpor</p>
+            <h3 className="text-h2 text-text-primary mb-1">Preview Upload Produk</h3>
+            <p className="text-caption text-text-secondary mb-4">{importRows.length} baris siap diupload</p>
             <div className="space-y-2">
               {importRows.map((row, index) => (
                 <div key={`${row.kode}-${index}`} className="rounded-xl border border-border p-3">
                   <p className="text-body font-semibold text-text-primary">{row.namaProduk}</p>
-                  <p className="text-caption text-text-secondary">{row.kode} • {formatCurrency(Number(row.harga.replace(/\D/g, '')) || 0)}</p>
+                  <p className="text-caption text-text-secondary">{row.kode} - {row.kategori} - {row.isActive ? 'Aktif' : 'Nonaktif'}</p>
+                  <p className="text-caption text-text-secondary">
+                    {row.isVirtualNominal
+                      ? `Admin ${formatCurrency(row.adminFee ?? 0)} - Min ${formatCurrency(row.minNominal ?? 20000)}`
+                      : formatCurrency(row.harga)}
+                  </p>
                 </div>
               ))}
             </div>
             <div className="grid grid-cols-2 gap-3 mt-5">
               <button onClick={() => setShowImport(false)} className="btn-ghost border border-border py-3 rounded-xl font-semibold">Batal</button>
-              <button onClick={confirmImport} className="btn-primary">Import Sekarang</button>
+              <button onClick={confirmImport} className="btn-primary">Upload Sekarang</button>
             </div>
           </div>
         </div>

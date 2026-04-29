@@ -27,7 +27,7 @@ function genId() { return Math.random().toString(36).slice(2, 10); }
 
 const emptyItem = (): SalesLineItem => ({
   id: genId(), productId: '', hargaSatuan: 0, kuantiti: 1, subTotal: 0,
-  snMode: 'none', snAwal: '', snAkhir: '', scannedSNs: [],
+  snMode: 'none', snAwal: '', snAkhir: '', scannedSNs: [], isManualPrice: false,
 });
 
 export default function SalesNewPage() {
@@ -123,6 +123,7 @@ export default function SalesNewPage() {
         subTotal: 0,
         snMode: 'none',
         nominalVirtual: 0,
+        isManualPrice: false,
       });
     } else {
       updateItem(itemId, {
@@ -133,6 +134,7 @@ export default function SalesNewPage() {
         kuantiti: 1,
         snMode: product.kategori === 'FISIK' ? 'range' : 'none',
         nominalVirtual: undefined,
+        isManualPrice: false,
       });
     }
   };
@@ -478,7 +480,7 @@ function LineItemForm({ item, index, canRemove, virtualProducts, fisikProducts, 
         <input
           type="text"
           value={item.product ? `${item.product.kode} — ${item.product.namaProduk}` : search}
-          onChange={e => { setSearch(e.target.value); onUpdate({ productId: '', product: undefined, nominalVirtual: undefined }); setDropdownOpen(true); }}
+          onChange={e => { setSearch(e.target.value); onUpdate({ productId: '', product: undefined, hargaSatuan: 0, subTotal: 0, nominalVirtual: undefined, isManualPrice: false }); setDropdownOpen(true); }}
           onFocus={() => setDropdownOpen(true)}
           placeholder="Cari produk..."
           className="input-field"
@@ -571,8 +573,42 @@ function LineItemForm({ item, index, canRemove, virtualProducts, fisikProducts, 
       {!item.product?.isVirtualNominal && (
         <div className="grid grid-cols-2 gap-3 mb-3">
           <div>
-            <label className="form-label">Harga Satuan</label>
-            <input type="text" value={item.hargaSatuan ? formatCurrency(item.hargaSatuan) : '—'} readOnly className="input-disabled" />
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <label className="form-label mb-0">Harga Satuan</label>
+              {item.product && (
+                <label className="flex items-center gap-1.5 text-[10px] text-text-secondary font-semibold cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(item.isManualPrice)}
+                    onChange={(e) => {
+                      const defaultPrice = item.product?.harga ?? 0;
+                      const nextPrice = e.target.checked ? item.hargaSatuan : defaultPrice;
+                      onUpdate({ isManualPrice: e.target.checked, hargaSatuan: nextPrice, subTotal: nextPrice * item.kuantiti });
+                    }}
+                    className="w-3.5 h-3.5 rounded accent-primary"
+                  />
+                  Manual
+                </label>
+              )}
+            </div>
+            {item.isManualPrice ? (
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-secondary text-caption font-medium">Rp</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={item.hargaSatuan > 0 ? item.hargaSatuan.toLocaleString('id-ID') : ''}
+                  onChange={(e) => {
+                    const price = parseInt(e.target.value.replace(/\D/g, ''), 10) || 0;
+                    onUpdate({ hargaSatuan: price, subTotal: price * item.kuantiti });
+                  }}
+                  placeholder="0"
+                  className="input-field pl-10 font-semibold"
+                />
+              </div>
+            ) : (
+              <input type="text" value={item.hargaSatuan ? formatCurrency(item.hargaSatuan) : '---'} readOnly className="input-disabled" />
+            )}
           </div>
           <div>
             <label className="form-label">Kuantiti <span className="text-error">*</span></label>

@@ -124,6 +124,7 @@ export interface SalesLineItem {
   snAkhir: string;
   scannedSNs: string[];
   nominalVirtual?: number;  // For isVirtualNominal products: nominal entered by user
+  isManualPrice?: boolean;
 }
 
 // ─── DASHBOARD ──────────────────────────────────────

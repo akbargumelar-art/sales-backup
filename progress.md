@@ -36,7 +36,8 @@ SalesTrack sekarang sudah menjadi aplikasi fullstack Next.js dengan backend API 
 - Halaman setup admin awal muncul jika database belum memiliki user
 - Manajemen user, outlet, produk, transaksi, laporan, dan export CSV tetap berjalan
 - Halaman `Kelola TAP` tersedia untuk Super Admin
-- Upload produk fisik memakai CSV dengan preview import
+- Semua halaman manajemen data (`Kelola TAP`, `Kelola Salesforce`, `Kelola Outlet`, `Kelola Produk`) memiliki download data CSV, upload data CSV dengan preview, dan template CSV yang bisa didownload
+- Input penjualan memiliki opsi harga satuan manual per item
 
 ---
 
@@ -64,7 +65,7 @@ SalesTrack sekarang sudah menjadi aplikasi fullstack Next.js dengan backend API 
 
 ## Gap Tersisa
 
-- Import Excel native masih belum ada, saat ini CSV
+- Import Excel native masih belum ada, saat ini memakai CSV
 - Barcode scanner kamera belum diimplementasikan
 - Webhook eksternal belum diimplementasikan
 - Audit log detail belum diimplementasikan

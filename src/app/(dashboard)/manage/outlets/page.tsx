@@ -1,9 +1,22 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { ChangeEvent, useMemo, useState } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { getVisibleOutlets, getViewableTaps } from '@/lib/app-data';
+import { downloadCsv, parseBoolean, parseCsv } from '@/lib/csv';
 import type { Outlet } from '@/types';
+
+type OutletImportRow = {
+  idOutlet: string;
+  nomorRS: string;
+  namaOutlet: string;
+  tap: string;
+  kabupaten: string;
+  kecamatan: string;
+  isManual: boolean;
+};
+
+const outletCsvHeaders = ['idOutlet', 'nomorRS', 'namaOutlet', 'tap', 'kabupaten', 'kecamatan', 'isManual'];
 
 export default function ManageOutletsPage() {
   const { user, outlets, showToast, addOutlet, updateOutlet } = useAppStore();
@@ -11,7 +24,10 @@ export default function ManageOutletsPage() {
   const [filterTap, setFilterTap] = useState<string>('ALL');
   const [editingOutlet, setEditingOutlet] = useState<Outlet | null>(null);
   const [showModal, setShowModal] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [importRows, setImportRows] = useState<OutletImportRow[]>([]);
 
+  const isAdminOrAbove = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
   const viewableTaps = useMemo(() => user ? getViewableTaps(user) : [], [user]);
   const allOutlets = useMemo(() => {
     void outlets;
@@ -35,18 +51,117 @@ export default function ManageOutletsPage() {
     return counts;
   }, [allOutlets]);
 
+  const handleDownloadData = () => {
+    if (filtered.length === 0) {
+      showToast('Tidak ada data outlet untuk didownload', 'warning');
+      return;
+    }
+    downloadCsv(
+      `outlet-${new Date().toISOString().slice(0, 10)}.csv`,
+      outletCsvHeaders,
+      filtered.map((outlet) => [
+        outlet.idOutlet,
+        outlet.nomorRS,
+        outlet.namaOutlet,
+        outlet.tap,
+        outlet.kabupaten,
+        outlet.kecamatan,
+        outlet.isManual,
+      ]),
+    );
+    showToast('Download data outlet berhasil', 'success');
+  };
+
+  const handleDownloadTemplate = () => {
+    const sampleTap = viewableTaps[0] ?? user?.tap ?? 'TAP-CONTOH';
+    downloadCsv('template-outlet.csv', outletCsvHeaders, [
+      ['OUT-001', 'RS-001', 'Outlet Contoh', sampleTap, 'Bandung', 'Coblong', true],
+    ]);
+  };
+
+  const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    const rows = parseCsv(await file.text());
+    if (rows.length === 0) {
+      showToast('File import kosong atau tidak valid', 'error');
+      return;
+    }
+
+    const parsed = rows.map((row) => ({
+      idOutlet: String(row.idOutlet ?? '').trim().toUpperCase(),
+      nomorRS: String(row.nomorRS ?? '').trim(),
+      namaOutlet: String(row.namaOutlet ?? '').trim(),
+      tap: String(row.tap ?? user?.tap ?? '').trim(),
+      kabupaten: String(row.kabupaten ?? '').trim(),
+      kecamatan: String(row.kecamatan ?? '').trim(),
+      isManual: parseBoolean(row.isManual, true),
+    })).filter((row) => row.idOutlet && row.nomorRS && row.namaOutlet && row.tap && row.kabupaten && row.kecamatan);
+
+    if (parsed.length === 0) {
+      showToast('Tidak ada data outlet yang terbaca', 'error');
+      return;
+    }
+    setImportRows(parsed);
+    setShowImport(true);
+  };
+
+  const confirmImport = async () => {
+    const failures: string[] = [];
+    for (const row of importRows) {
+      const existing = outlets.find((outlet) => outlet.idOutlet.toUpperCase() === row.idOutlet.toUpperCase());
+      const payload = {
+        idOutlet: row.idOutlet,
+        nomorRS: row.nomorRS,
+        namaOutlet: row.namaOutlet,
+        tap: row.tap,
+        kabupaten: row.kabupaten,
+        kecamatan: row.kecamatan,
+        isManual: row.isManual,
+      };
+      if (existing && !isAdminOrAbove) {
+        failures.push(`${row.idOutlet}: hanya admin yang bisa memperbarui outlet`);
+        continue;
+      }
+      const result = existing ? await updateOutlet(existing.id, payload) : await addOutlet(payload);
+      if (!result.ok) failures.push(`${row.idOutlet}: ${result.message}`);
+    }
+
+    if (failures.length > 0) {
+      showToast(`${failures.length} baris gagal. ${failures[0]}`, 'error');
+      return;
+    }
+    setShowImport(false);
+    setImportRows([]);
+    showToast(`${importRows.length} outlet berhasil diupload`, 'success');
+  };
+
   return (
     <div className="animate-fade-in">
       <div className="bg-white border-b border-border px-4 py-3 sticky top-[52px] lg:top-[53px] z-20">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-h2 text-text-primary">Kelola Outlet</h2>
             <p className="text-caption text-text-secondary">{filtered.length} outlet</p>
           </div>
-          <button onClick={() => { setEditingOutlet(null); setShowModal(true); }} className="px-3 py-2 rounded-xl bg-primary text-white text-caption font-semibold flex items-center gap-1.5 hover:bg-primary-dark transition-colors">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Tambah Outlet
-          </button>
+          <div className="flex items-center justify-end gap-2 flex-wrap">
+            <button onClick={handleDownloadTemplate} className="px-3 py-2 rounded-xl bg-surface text-text-secondary text-caption font-semibold hover:bg-slate-100 transition-colors">
+              Template CSV
+            </button>
+            <button onClick={handleDownloadData} className="px-3 py-2 rounded-xl bg-success/10 text-success text-caption font-semibold hover:bg-success/20 transition-colors">
+              Download Data
+            </button>
+            <label className="px-3 py-2 rounded-xl bg-surface text-text-secondary text-caption font-semibold cursor-pointer hover:bg-slate-100 transition-colors">
+              Upload Data
+              <input type="file" accept=".csv,text/csv" onChange={handleImportFile} className="hidden" />
+            </label>
+            <button onClick={() => { setEditingOutlet(null); setShowModal(true); }} className="px-3 py-2 rounded-xl bg-primary text-white text-caption font-semibold flex items-center gap-1.5 hover:bg-primary-dark transition-colors">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Tambah Outlet
+            </button>
+          </div>
         </div>
       </div>
 
@@ -129,6 +244,29 @@ export default function ManageOutletsPage() {
             setShowModal(false);
           }}
         />
+      )}
+
+      {showImport && (
+        <div className="overlay" onClick={() => setShowImport(false)}>
+          <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-mobile lg:max-w-2xl lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2 bg-white rounded-t-2xl lg:rounded-2xl p-5 z-50 animate-slide-up max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="w-10 h-1 rounded-full bg-border mx-auto mb-4 lg:hidden" />
+            <h3 className="text-h2 text-text-primary mb-1">Preview Upload Outlet</h3>
+            <p className="text-caption text-text-secondary mb-4">{importRows.length} baris siap diupload</p>
+            <div className="space-y-2">
+              {importRows.map((row, index) => (
+                <div key={`${row.idOutlet}-${index}`} className="rounded-xl border border-border p-3">
+                  <p className="text-body font-semibold text-text-primary">{row.namaOutlet}</p>
+                  <p className="text-caption text-text-secondary">{row.idOutlet} - {row.nomorRS} - {row.tap}</p>
+                  <p className="text-caption text-text-secondary">{row.kabupaten}, {row.kecamatan}</p>
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-5">
+              <button onClick={() => setShowImport(false)} className="btn-ghost border border-border py-3 rounded-xl font-semibold">Batal</button>
+              <button onClick={confirmImport} className="btn-primary">Upload Sekarang</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

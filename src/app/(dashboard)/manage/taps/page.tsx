@@ -1,7 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { ChangeEvent, useMemo, useState } from 'react';
 import { useAppStore } from '@/store/useAppStore';
+import { downloadCsv, parseBoolean, parseCsv } from '@/lib/csv';
 import type { Tap } from '@/types';
 
 type TapFormPayload = {
@@ -10,17 +11,28 @@ type TapFormPayload = {
   isActive: boolean;
 };
 
+type TapImportRow = TapFormPayload;
+
+const tapCsvHeaders = ['kode', 'nama', 'isActive'];
+
 const normalizeTapCodePreview = (value: string) => value
   .toUpperCase()
   .replace(/[^A-Z0-9-]+/g, '-')
   .replace(/-+/g, '-')
   .replace(/^-|-$/g, '');
 
+const normalizeTapCodeForImport = (value: string) => {
+  const normalized = normalizeTapCodePreview(value);
+  return normalized && !normalized.startsWith('TAP-') ? `TAP-${normalized}` : normalized;
+};
+
 export default function ManageTapsPage() {
   const { user, taps, users, outlets, showToast, addTap, updateTap, toggleTapActive } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [editingTap, setEditingTap] = useState<Tap | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [importRows, setImportRows] = useState<TapImportRow[]>([]);
 
   const tapUsage = useMemo(() => {
     const counts: Record<string, { users: number; outlets: number }> = {};
@@ -73,6 +85,67 @@ export default function ManageTapsPage() {
     showToast(result.message, 'success');
   };
 
+  const handleDownloadData = () => {
+    if (filteredTaps.length === 0) {
+      showToast('Tidak ada data TAP untuk didownload', 'warning');
+      return;
+    }
+    downloadCsv(
+      `tap-${new Date().toISOString().slice(0, 10)}.csv`,
+      tapCsvHeaders,
+      filteredTaps.map((tap) => [tap.kode, tap.nama, tap.isActive]),
+    );
+    showToast('Download data TAP berhasil', 'success');
+  };
+
+  const handleDownloadTemplate = () => {
+    downloadCsv('template-tap.csv', tapCsvHeaders, [
+      ['TAP-CONTOH', 'TAP Contoh', true],
+    ]);
+  };
+
+  const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    const rows = parseCsv(await file.text());
+    if (rows.length === 0) {
+      showToast('File import kosong atau tidak valid', 'error');
+      return;
+    }
+
+    const parsed = rows.map((row) => ({
+      kode: normalizeTapCodeForImport(String(row.kode ?? '')),
+      nama: String(row.nama ?? '').trim(),
+      isActive: parseBoolean(row.isActive, true),
+    })).filter((row) => row.kode && row.nama);
+
+    if (parsed.length === 0) {
+      showToast('Tidak ada data TAP yang terbaca', 'error');
+      return;
+    }
+    setImportRows(parsed);
+    setShowImport(true);
+  };
+
+  const confirmImport = async () => {
+    const failures: string[] = [];
+    for (const row of importRows) {
+      const existing = taps.find((tap) => tap.kode.toUpperCase() === row.kode.toUpperCase());
+      const result = existing ? await updateTap(existing.id, row) : await addTap(row);
+      if (!result.ok) failures.push(`${row.kode}: ${result.message}`);
+    }
+
+    if (failures.length > 0) {
+      showToast(`${failures.length} baris gagal. ${failures[0]}`, 'error');
+      return;
+    }
+    setShowImport(false);
+    setImportRows([]);
+    showToast(`${importRows.length} TAP berhasil diupload`, 'success');
+  };
+
   if (user?.role !== 'SUPER_ADMIN') {
     return (
       <div className="p-4 animate-fade-in">
@@ -95,10 +168,22 @@ export default function ManageTapsPage() {
             <h2 className="text-h2 text-text-primary">Kelola TAP</h2>
             <p className="text-caption text-text-secondary">{activeCount} aktif dari {taps.length} TAP</p>
           </div>
-          <button onClick={() => setIsCreating(true)} className="px-3 py-2 rounded-xl bg-primary text-white text-caption font-semibold flex items-center gap-1.5 hover:bg-primary-dark transition-colors">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Tambah TAP
-          </button>
+          <div className="flex items-center justify-end gap-2 flex-wrap">
+            <button onClick={handleDownloadTemplate} className="px-3 py-2 rounded-xl bg-surface text-text-secondary text-caption font-semibold hover:bg-slate-100 transition-colors">
+              Template CSV
+            </button>
+            <button onClick={handleDownloadData} className="px-3 py-2 rounded-xl bg-success/10 text-success text-caption font-semibold hover:bg-success/20 transition-colors">
+              Download Data
+            </button>
+            <label className="px-3 py-2 rounded-xl bg-surface text-text-secondary text-caption font-semibold cursor-pointer hover:bg-slate-100 transition-colors">
+              Upload Data
+              <input type="file" accept=".csv,text/csv" onChange={handleImportFile} className="hidden" />
+            </label>
+            <button onClick={() => setIsCreating(true)} className="px-3 py-2 rounded-xl bg-primary text-white text-caption font-semibold flex items-center gap-1.5 hover:bg-primary-dark transition-colors">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Tambah TAP
+            </button>
+          </div>
         </div>
       </div>
 
@@ -171,6 +256,28 @@ export default function ManageTapsPage() {
           onClose={() => setEditingTap(null)}
           onSave={handleUpdate}
         />
+      )}
+
+      {showImport && (
+        <div className="overlay" onClick={() => setShowImport(false)}>
+          <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-mobile lg:max-w-2xl lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2 bg-white rounded-t-2xl lg:rounded-2xl p-5 z-50 animate-slide-up max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="w-10 h-1 rounded-full bg-border mx-auto mb-4 lg:hidden" />
+            <h3 className="text-h2 text-text-primary mb-1">Preview Upload TAP</h3>
+            <p className="text-caption text-text-secondary mb-4">{importRows.length} baris siap diupload</p>
+            <div className="space-y-2">
+              {importRows.map((row, index) => (
+                <div key={`${row.kode}-${index}`} className="rounded-xl border border-border p-3">
+                  <p className="text-body font-semibold text-text-primary">{row.kode}</p>
+                  <p className="text-caption text-text-secondary">{row.nama} - {row.isActive ? 'Aktif' : 'Nonaktif'}</p>
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-5">
+              <button onClick={() => setShowImport(false)} className="btn-ghost border border-border py-3 rounded-xl font-semibold">Batal</button>
+              <button onClick={confirmImport} className="btn-primary">Upload Sekarang</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

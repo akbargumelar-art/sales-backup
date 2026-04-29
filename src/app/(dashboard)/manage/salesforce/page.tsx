@@ -1,9 +1,39 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { ChangeEvent, useMemo, useState } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { getViewableTaps } from '@/lib/app-data';
+import { downloadCsv, parseBoolean, parseCsv } from '@/lib/csv';
 import type { User } from '@/types';
+
+type UserImportRow = {
+  nama: string;
+  username: string;
+  password: string;
+  role: User['role'];
+  tap: string;
+  allowedTaps: string[];
+  isActive: boolean;
+  mustChangePassword: boolean;
+};
+
+const userCsvHeaders = ['nama', 'username', 'password', 'role', 'tap', 'allowedTaps', 'isActive', 'mustChangePassword'];
+
+const normalizeUserRole = (value: string | undefined): User['role'] => {
+  const normalized = String(value ?? '').trim().toUpperCase().replace(/\s+/g, '_');
+  if (normalized === 'SUPER_ADMIN' || normalized === 'ADMIN' || normalized === 'SALESFORCE') return normalized;
+  return 'SALESFORCE';
+};
+
+const parseAllowedTaps = (value: string | undefined, tap: string, role: User['role']) => {
+  if (role === 'SALESFORCE') return [tap];
+  const taps = String(value ?? '')
+    .split(/[;|]/)
+    .map((item) => item.trim().toUpperCase())
+    .filter(Boolean);
+  if (taps.includes('ALL')) return ['ALL'];
+  return taps.length > 0 ? Array.from(new Set(taps)) : [tap];
+};
 
 export default function ManageSalesforcePage() {
   const { user: currentUser, users, taps, showToast, addUser, updateUser, resetUserPassword } = useAppStore();
@@ -14,6 +44,8 @@ export default function ManageSalesforcePage() {
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [creatingUser, setCreatingUser] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [importRows, setImportRows] = useState<UserImportRow[]>([]);
   // Reset password state
   const [resetTarget, setResetTarget] = useState<User | null>(null);
   const [resetResult, setResetResult] = useState<string | null>(null);
@@ -93,18 +125,131 @@ export default function ManageSalesforcePage() {
     return false;
   };
 
+  const handleDownloadData = () => {
+    if (filteredUsers.length === 0) {
+      showToast('Tidak ada data user untuk didownload', 'warning');
+      return;
+    }
+    downloadCsv(
+      `salesforce-${new Date().toISOString().slice(0, 10)}.csv`,
+      userCsvHeaders,
+      filteredUsers.map((item) => [
+        item.nama,
+        item.username,
+        '',
+        item.role,
+        item.tap,
+        item.allowedTaps.join(';'),
+        item.isActive,
+        item.mustChangePassword,
+      ]),
+    );
+    showToast('Download data user berhasil', 'success');
+  };
+
+  const handleDownloadTemplate = () => {
+    const sampleTap = createTapOptions[0] ?? currentUser?.tap ?? 'TAP-CONTOH';
+    const rows: (string | boolean)[][] = [
+      ['Budi Salesforce', 'budi.sf', 'Password123', 'SALESFORCE', sampleTap, sampleTap, true, true],
+    ];
+    if (isSuper) rows.push(['Admin Area', 'admin.area', 'Password123', 'ADMIN', sampleTap, sampleTap, true, true]);
+    downloadCsv('template-salesforce.csv', userCsvHeaders, rows);
+  };
+
+  const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    const rows = parseCsv(await file.text());
+    if (rows.length === 0) {
+      showToast('File import kosong atau tidak valid', 'error');
+      return;
+    }
+
+    const parsed = rows.map((row) => {
+      const role = normalizeUserRole(row.role);
+      const tap = String(row.tap ?? currentUser?.tap ?? '').trim();
+      return {
+        nama: String(row.nama ?? '').trim(),
+        username: String(row.username ?? '').trim().toLowerCase(),
+        password: String(row.password ?? '').trim(),
+        role,
+        tap,
+        allowedTaps: parseAllowedTaps(row.allowedTaps, tap, role),
+        isActive: parseBoolean(row.isActive, true),
+        mustChangePassword: parseBoolean(row.mustChangePassword, true),
+      };
+    }).filter((row) => row.nama && row.username && row.tap);
+
+    if (parsed.length === 0) {
+      showToast('Tidak ada data user yang terbaca', 'error');
+      return;
+    }
+    setImportRows(parsed);
+    setShowImport(true);
+  };
+
+  const confirmImport = async () => {
+    const failures: string[] = [];
+    for (const row of importRows) {
+      const existing = users.find((item) => item.username.toLowerCase() === row.username.toLowerCase());
+      if (!isSuper && (row.role !== 'SALESFORCE' || (existing && existing.role !== 'SALESFORCE'))) {
+        failures.push(`${row.username}: admin hanya bisa mengelola user Salesforce`);
+        continue;
+      }
+
+      const payload = {
+        nama: row.nama,
+        username: row.username,
+        role: row.role,
+        tap: row.tap,
+        allowedTaps: row.allowedTaps,
+        isActive: row.isActive,
+      };
+
+      const result = existing
+        ? await updateUser(existing.id, payload)
+        : row.password
+          ? await addUser({ ...payload, password: row.password, mustChangePassword: row.mustChangePassword })
+          : { ok: false, message: 'Password wajib diisi untuk user baru' };
+
+      if (!result.ok) failures.push(`${row.username}: ${result.message}`);
+    }
+
+    if (failures.length > 0) {
+      showToast(`${failures.length} baris gagal. ${failures[0]}`, 'error');
+      return;
+    }
+    setShowImport(false);
+    setImportRows([]);
+    showToast(`${importRows.length} user berhasil diupload`, 'success');
+  };
+
   return (
     <div className="animate-fade-in">
       <div className="bg-white border-b border-border px-4 py-3 sticky top-[52px] lg:top-[53px] z-20">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-h2 text-text-primary">Kelola Salesforce</h2>
             <p className="text-caption text-text-secondary">{filteredUsers.length} pengguna</p>
           </div>
-          <button onClick={() => { setCreatingUser(true); setShowEditModal(false); }} className="px-3 py-2 rounded-xl bg-primary text-white text-caption font-semibold flex items-center gap-1.5 hover:bg-primary-dark transition-colors">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Tambah User
-          </button>
+          <div className="flex items-center justify-end gap-2 flex-wrap">
+            <button onClick={handleDownloadTemplate} className="px-3 py-2 rounded-xl bg-surface text-text-secondary text-caption font-semibold hover:bg-slate-100 transition-colors">
+              Template CSV
+            </button>
+            <button onClick={handleDownloadData} className="px-3 py-2 rounded-xl bg-success/10 text-success text-caption font-semibold hover:bg-success/20 transition-colors">
+              Download Data
+            </button>
+            <label className="px-3 py-2 rounded-xl bg-surface text-text-secondary text-caption font-semibold cursor-pointer hover:bg-slate-100 transition-colors">
+              Upload Data
+              <input type="file" accept=".csv,text/csv" onChange={handleImportFile} className="hidden" />
+            </label>
+            <button onClick={() => { setCreatingUser(true); setShowEditModal(false); }} className="px-3 py-2 rounded-xl bg-primary text-white text-caption font-semibold flex items-center gap-1.5 hover:bg-primary-dark transition-colors">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Tambah User
+            </button>
+          </div>
         </div>
       </div>
 
@@ -239,6 +384,29 @@ export default function ManageSalesforcePage() {
             showToast(result.message, 'success');
           }}
         />
+      )}
+
+      {showImport && (
+        <div className="overlay" onClick={() => setShowImport(false)}>
+          <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-mobile lg:max-w-2xl lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2 bg-white rounded-t-2xl lg:rounded-2xl p-5 z-50 animate-slide-up max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="w-10 h-1 rounded-full bg-border mx-auto mb-4 lg:hidden" />
+            <h3 className="text-h2 text-text-primary mb-1">Preview Upload User</h3>
+            <p className="text-caption text-text-secondary mb-4">{importRows.length} baris siap diupload</p>
+            <div className="space-y-2">
+              {importRows.map((row, index) => (
+                <div key={`${row.username}-${index}`} className="rounded-xl border border-border p-3">
+                  <p className="text-body font-semibold text-text-primary">{row.nama}</p>
+                  <p className="text-caption text-text-secondary">@{row.username} - {row.role.replace('_', ' ')} - {row.tap}</p>
+                  <p className="text-caption text-text-secondary">Akses: {row.allowedTaps.includes('ALL') ? 'Semua TAP' : row.allowedTaps.join(', ')}</p>
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-5">
+              <button onClick={() => setShowImport(false)} className="btn-ghost border border-border py-3 rounded-xl font-semibold">Batal</button>
+              <button onClick={confirmImport} className="btn-primary">Upload Sekarang</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Reset Password Modal */}
