@@ -14,6 +14,7 @@ type DashboardSummaryRow = {
   qty: number;
   omzet: number;
   outletCount?: number;
+  salesforceCount?: number;
 };
 
 const sumTransactionQty = (trx: Transaction) => trx.items.reduce((sum, item) => sum + item.kuantiti, 0);
@@ -46,7 +47,7 @@ function buildProductSummary(transactions: Transaction[]): DashboardSummaryRow[]
 }
 
 function buildTapSummary(transactions: Transaction[]): DashboardSummaryRow[] {
-  const rows = new Map<string, DashboardSummaryRow & { outlets: Set<string> }>();
+  const rows = new Map<string, DashboardSummaryRow & { outlets: Set<string>; salesforces: Set<string> }>();
 
   transactions.filter((trx) => trx.status === 'COMPLETED').forEach((trx) => {
     const tap = trx.outlet.tap;
@@ -57,19 +58,52 @@ function buildTapSummary(transactions: Transaction[]): DashboardSummaryRow[] {
       qty: 0,
       omzet: 0,
       outletCount: 0,
+      salesforceCount: 0,
       outlets: new Set<string>(),
+      salesforces: new Set<string>(),
     };
     row.transaksi += 1;
     row.qty += sumTransactionQty(trx);
     row.omzet += trx.totalTagihan;
     row.outlets.add(trx.outletId);
+    row.salesforces.add(trx.salesforceId);
     row.outletCount = row.outlets.size;
+    row.salesforceCount = row.salesforces.size;
     rows.set(tap, row);
   });
 
   return Array.from(rows.values())
-    .map(({ outlets: _outlets, ...row }) => row)
+    .map(({ outlets: _outlets, salesforces: _salesforces, ...row }) => row)
     .sort((a, b) => b.omzet - a.omzet || b.transaksi - a.transaksi || a.title.localeCompare(b.title));
+}
+
+function buildTapTotalSummary(transactions: Transaction[]): DashboardSummaryRow | undefined {
+  const completedTransactions = transactions.filter((trx) => trx.status === 'COMPLETED');
+  if (completedTransactions.length === 0) return undefined;
+
+  const outlets = new Set<string>();
+  const salesforces = new Set<string>();
+
+  return completedTransactions.reduce<DashboardSummaryRow>((total, trx) => {
+    outlets.add(trx.outletId);
+    salesforces.add(trx.salesforceId);
+
+    total.transaksi += 1;
+    total.qty += sumTransactionQty(trx);
+    total.omzet += trx.totalTagihan;
+    total.outletCount = outlets.size;
+    total.salesforceCount = salesforces.size;
+
+    return total;
+  }, {
+    id: 'total-cluster',
+    title: 'Total 1 Cluster',
+    transaksi: 0,
+    qty: 0,
+    omzet: 0,
+    outletCount: 0,
+    salesforceCount: 0,
+  });
 }
 
 function buildSalesforceSummary(transactions: Transaction[]): DashboardSummaryRow[] {
@@ -146,6 +180,7 @@ export default function DashboardPage() {
   const summary = useMemo(() => getSummaryForTransactions(filteredTrx), [filteredTrx]);
   const productSummary = useMemo(() => buildProductSummary(filteredTrx), [filteredTrx]);
   const tapSummary = useMemo(() => buildTapSummary(filteredTrx), [filteredTrx]);
+  const tapTotalSummary = useMemo(() => buildTapTotalSummary(filteredTrx), [filteredTrx]);
   const salesforceSummary = useMemo(() => buildSalesforceSummary(filteredTrx), [filteredTrx]);
   const recentTrx = filteredTrx.slice(0, 5);
 
@@ -375,6 +410,8 @@ export default function DashboardPage() {
               rows={tapSummary}
               emptyLabel="Belum ada transaksi per TAP"
               showOutlet
+              showSalesforce
+              totalRow={tapTotalSummary}
               isOpen={openSummaryTables.tap}
               onToggle={() => setOpenSummaryTables((prev) => ({ ...prev, tap: !prev.tap }))}
             />
@@ -521,6 +558,8 @@ function SummaryTableCard({
   isOpen,
   onToggle,
   showOutlet = false,
+  showSalesforce = false,
+  totalRow,
 }: {
   title: string;
   rows: DashboardSummaryRow[];
@@ -528,6 +567,8 @@ function SummaryTableCard({
   isOpen: boolean;
   onToggle: () => void;
   showOutlet?: boolean;
+  showSalesforce?: boolean;
+  totalRow?: DashboardSummaryRow;
 }) {
   return (
     <div className="card p-0 overflow-hidden">
@@ -558,12 +599,13 @@ function SummaryTableCard({
         </div>
       ) : isOpen ? (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[680px] text-left">
+          <table className="w-full min-w-[760px] text-left">
             <thead className="bg-surface">
               <tr className="text-[10px] uppercase font-bold text-text-secondary">
                 <th className="px-4 py-2.5 w-[38%]">Nama</th>
                 <th className="px-3 py-2.5 text-right">Trx</th>
                 {showOutlet && <th className="px-3 py-2.5 text-right">Outlet</th>}
+                {showSalesforce && <th className="px-3 py-2.5 text-right">SF Unik</th>}
                 <th className="px-3 py-2.5 text-right">Qty</th>
                 <th className="px-4 py-2.5 text-right">Omset</th>
               </tr>
@@ -584,11 +626,31 @@ function SummaryTableCard({
                   </td>
                   <td className="px-3 py-3 text-right text-body font-semibold text-text-primary">{row.transaksi}</td>
                   {showOutlet && <td className="px-3 py-3 text-right text-body text-text-primary">{row.outletCount ?? 0}</td>}
+                  {showSalesforce && <td className="px-3 py-3 text-right text-body text-text-primary">{row.salesforceCount ?? 0}</td>}
                   <td className="px-3 py-3 text-right text-body text-text-primary">{row.qty}</td>
                   <td className="px-4 py-3 text-right text-body font-bold text-text-primary">{formatCurrency(row.omzet)}</td>
                 </tr>
               ))}
             </tbody>
+            {totalRow && (
+              <tfoot>
+                <tr className="border-t border-primary/20 bg-primary/5">
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-5 h-5 rounded-md bg-primary text-white text-[10px] font-bold flex items-center justify-center shrink-0">
+                        T
+                      </span>
+                      <p className="text-body font-bold text-text-primary">{totalRow.title}</p>
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 text-right text-body font-bold text-text-primary">{totalRow.transaksi}</td>
+                  {showOutlet && <td className="px-3 py-3 text-right text-body font-bold text-text-primary">{totalRow.outletCount ?? 0}</td>}
+                  {showSalesforce && <td className="px-3 py-3 text-right text-body font-bold text-text-primary">{totalRow.salesforceCount ?? 0}</td>}
+                  <td className="px-3 py-3 text-right text-body font-bold text-text-primary">{totalRow.qty}</td>
+                  <td className="px-4 py-3 text-right text-body font-bold text-text-primary">{formatCurrency(totalRow.omzet)}</td>
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       ) : null}
