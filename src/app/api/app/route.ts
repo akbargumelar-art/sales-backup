@@ -208,8 +208,16 @@ export async function POST(request: Request) {
         if (!requireAdmin(currentUser.role)) return NextResponse.json({ message: 'Akses ditolak' }, { status: 403 });
         const productId = payload.productId ? String(payload.productId) : null;
         const kategori = String(payload.kategori ?? 'FISIK') as 'VIRTUAL' | 'FISIK';
+        const productKode = String(payload.kode ?? '').trim().toUpperCase();
+        // Check for duplicate product code before create/update
+        if (productKode) {
+          const existingProduct = await prisma.product.findUnique({ where: { kode: productKode } });
+          if (existingProduct && existingProduct.id !== productId) {
+            return NextResponse.json({ message: 'Kode produk sudah digunakan' }, { status: 409 });
+          }
+        }
         const data = {
-          kode: String(payload.kode ?? '').trim().toUpperCase(),
+          kode: productKode,
           kategori,
           namaProduk: String(payload.namaProduk ?? '').trim(),
           harga: kategori === 'FISIK' ? Number(payload.harga ?? 0) : 0,
@@ -285,6 +293,25 @@ export async function POST(request: Request) {
         const items: any[] = Array.isArray(payload.items) ? payload.items : [];
         const outletId = String(payload.outletId ?? '').trim();
         const idOutlet = String(payload.idOutlet ?? '').trim().toUpperCase();
+
+        // Server-side transaction validation
+        if (items.length === 0) {
+          return NextResponse.json({ message: 'Transaksi harus memiliki minimal 1 item produk.' }, { status: 400 });
+        }
+        const ownerName = String(payload.ownerName ?? '').trim();
+        const ownerPhone = String(payload.ownerPhone ?? '').trim();
+        if (!ownerName || !ownerPhone) {
+          return NextResponse.json({ message: 'Nama dan nomor HP pemilik outlet wajib diisi.' }, { status: 400 });
+        }
+        for (const item of items) {
+          if (Number(item.kuantiti ?? 0) < 1) {
+            return NextResponse.json({ message: 'Kuantitas setiap item harus minimal 1.' }, { status: 400 });
+          }
+          if (Number(item.subTotal ?? 0) <= 0) {
+            return NextResponse.json({ message: 'Subtotal setiap item harus lebih dari 0.' }, { status: 400 });
+          }
+        }
+
         if (!outletId && !idOutlet) {
           return NextResponse.json({ message: 'Outlet belum dipilih. Silakan pilih ulang outlet.' }, { status: 400 });
         }
@@ -341,8 +368,8 @@ export async function POST(request: Request) {
             salesforceId: currentUser.id,
             status: 'COMPLETED',
             totalTagihan: items.reduce((sum: number, item: any) => sum + Number(item.subTotal ?? 0), 0),
-            ownerName: String(payload.ownerName ?? '').trim(),
-            ownerPhone: String(payload.ownerPhone ?? '').trim(),
+            ownerName,
+            ownerPhone,
             catatan: payload.catatan ? String(payload.catatan).trim() : null,
             submittedAt: now,
             items: {

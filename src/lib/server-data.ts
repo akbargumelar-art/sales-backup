@@ -2,6 +2,8 @@ import type { Prisma, User as DbUser } from '@prisma/client';
 import type { Product, Tap, Transaction, User } from '@/types';
 import { prisma } from '@/lib/prisma';
 
+const DEFAULT_TRANSACTION_LIMIT = 200;
+
 const transactionInclude = {
   outlet: true,
   salesforce: true,
@@ -101,6 +103,32 @@ function mapTransaction(transaction: Prisma.TransactionGetPayload<{ include: typ
   };
 }
 
+function mapOutlet(outlet: Prisma.OutletGetPayload<Record<string, never>>) {
+  return {
+    id: outlet.id,
+    idOutlet: outlet.idOutlet,
+    nomorRS: outlet.nomorRS,
+    namaOutlet: outlet.namaOutlet,
+    tap: outlet.tap,
+    salesforceUsername: outlet.salesforceUsername ?? undefined,
+    kabupaten: outlet.kabupaten,
+    kecamatan: outlet.kecamatan,
+    isManual: outlet.isManual,
+    createdAt: outlet.createdAt.toISOString(),
+  };
+}
+
+/**
+ * Returns the list of TAP codes this user is allowed to see.
+ * Returns null if the user has unrestricted access (SUPER_ADMIN or allowedTaps includes 'ALL').
+ */
+function getAllowedTapCodes(user: DbUser): string[] | null {
+  const allowedTaps = Array.isArray(user.allowedTaps) ? user.allowedTaps.map(String) : [];
+  if (user.role === 'SUPER_ADMIN' || allowedTaps.includes('ALL')) return null;
+  if (user.role === 'ADMIN') return allowedTaps.length > 0 ? allowedTaps : [user.tap];
+  return [user.tap];
+}
+
 export async function getBootstrapData(user: DbUser | null) {
   const [userCount, taps] = await Promise.all([
     prisma.user.count(),
@@ -118,14 +146,53 @@ export async function getBootstrapData(user: DbUser | null) {
     };
   }
 
+  const allowedTapCodes = getAllowedTapCodes(user);
+
+  // --- Users: Salesforce only sees self ---
+  const usersQuery =
+    user.role === 'SALESFORCE'
+      ? Promise.resolve([user])
+      : prisma.user.findMany({
+          where: allowedTapCodes ? { tap: { in: allowedTapCodes } } : undefined,
+          orderBy: [{ role: 'asc' }, { nama: 'asc' }],
+        });
+
+  // --- Products: everyone sees all products (needed for transaction form) ---
+  const productsQuery = prisma.product.findMany({ orderBy: { namaProduk: 'asc' } });
+
+  // --- Outlets: Salesforce sees only assigned outlets ---
+  const outletWhere: Prisma.OutletWhereInput | undefined =
+    user.role === 'SALESFORCE'
+      ? { salesforceUsername: user.username }
+      : allowedTapCodes
+        ? { tap: { in: allowedTapCodes } }
+        : undefined;
+
+  const outletsQuery = prisma.outlet.findMany({
+    where: outletWhere,
+    orderBy: { namaOutlet: 'asc' },
+  });
+
+  // --- Transactions: scoped by role with limit ---
+  const transactionWhere: Prisma.TransactionWhereInput | undefined =
+    user.role === 'SALESFORCE'
+      ? { salesforceId: user.id }
+      : allowedTapCodes
+        ? { outlet: { tap: { in: allowedTapCodes } } }
+        : undefined;
+
+  const transactionsQuery = prisma.transaction.findMany({
+    where: transactionWhere,
+    include: transactionInclude,
+    orderBy: { submittedAt: 'desc' },
+    take: DEFAULT_TRANSACTION_LIMIT,
+  });
+
   const [users, products, outlets, transactions] = await Promise.all([
-    prisma.user.findMany({ orderBy: [{ role: 'asc' }, { nama: 'asc' }] }),
-    prisma.product.findMany({ orderBy: { namaProduk: 'asc' } }),
-    prisma.outlet.findMany({ orderBy: { namaOutlet: 'asc' } }),
-    prisma.transaction.findMany({
-      include: transactionInclude,
-      orderBy: { submittedAt: 'desc' },
-    }),
+    usersQuery,
+    productsQuery,
+    outletsQuery,
+    transactionsQuery,
   ]);
 
   return {
@@ -133,18 +200,7 @@ export async function getBootstrapData(user: DbUser | null) {
     user: sanitizeUser(user),
     users: users.map(sanitizeUser),
     products: products.map(mapProduct),
-    outlets: outlets.map((outlet) => ({
-      id: outlet.id,
-      idOutlet: outlet.idOutlet,
-      nomorRS: outlet.nomorRS,
-      namaOutlet: outlet.namaOutlet,
-      tap: outlet.tap,
-      salesforceUsername: outlet.salesforceUsername ?? undefined,
-      kabupaten: outlet.kabupaten,
-      kecamatan: outlet.kecamatan,
-      isManual: outlet.isManual,
-      createdAt: outlet.createdAt.toISOString(),
-    })),
+    outlets: outlets.map(mapOutlet),
     transactions: transactions.map(mapTransaction),
     taps: taps.map(mapTap),
   };
