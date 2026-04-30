@@ -6,6 +6,7 @@ import {
   getVisibleTransactions, getViewableTaps, formatCurrency, formatDateTime,
   getStatusColor, getStatusLabel,
 } from '@/lib/app-data';
+import { downloadCsv } from '@/lib/csv';
 import type { TransactionStatus } from '@/types';
 
 const getRoleLabel = (role: string) => role.replace('_', ' ');
@@ -133,31 +134,64 @@ export default function ReportPage() {
       showToast('Tidak ada data untuk diexport', 'warning');
       return;
     }
-    const header = ['nomorTransaksi', 'tanggal', 'status', 'tap', 'outlet', 'ownerName', 'ownerPhone', 'inputUserNama', 'inputUserUsername', 'inputUserRole', 'totalTagihan'];
-    const lines = filtered.map((trx) => [
+    const headers = [
+      'nomorTransaksi',
+      'tanggal',
+      'status',
+      'tap',
+      'idOutlet',
+      'nomorRS',
+      'namaOutlet',
+      'kabupaten',
+      'kecamatan',
+      'ownerName',
+      'ownerPhone',
+      'inputUserNama',
+      'inputUserUsername',
+      'inputUserRole',
+      'noProduk',
+      'kodeProduk',
+      'namaProduk',
+      'kategoriProduk',
+      'kuantiti',
+      'hargaJual',
+      'subtotalProduk',
+      'snAwal',
+      'snAkhir',
+      'totalTagihanTransaksi',
+      'catatan',
+      'cancelReason',
+    ];
+    const rows = filtered.flatMap((trx) => trx.items.map((item, index) => [
       trx.nomorTransaksi,
       trx.submittedAt,
       trx.status,
       trx.outlet.tap,
+      trx.outlet.idOutlet,
+      trx.outlet.nomorRS,
       trx.outlet.namaOutlet,
+      trx.outlet.kabupaten,
+      trx.outlet.kecamatan,
       trx.ownerName,
       trx.ownerPhone,
       trx.salesforce.nama,
       trx.salesforce.username,
       trx.salesforce.role,
-      String(trx.totalTagihan),
-    ]);
-    const csv = [header, ...lines]
-      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-      .join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `sales-report-${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-    showToast('Export laporan berhasil', 'success');
+      index + 1,
+      item.product.kode,
+      item.product.namaProduk,
+      item.product.kategori,
+      item.kuantiti,
+      item.hargaSatuan,
+      item.subTotal,
+      item.snAwal ?? '',
+      item.snAkhir ?? '',
+      trx.totalTagihan,
+      trx.catatan ?? '',
+      trx.cancelReason ?? '',
+    ]));
+    downloadCsv(`sales-report-detail-${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
+    showToast('Export detail laporan berhasil', 'success');
   };
 
   return (
