@@ -4,6 +4,100 @@ import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useAppStore } from '@/store/useAppStore';
 import { getVisibleTransactions, getSummaryForTransactions, getViewableTaps, getPendingCancelForSalesforce, getPendingCancelBySalesforceForAdmin, formatCurrency, formatDateTime, getStatusColor, getStatusLabel } from '@/lib/app-data';
+import type { Transaction } from '@/types';
+
+type DashboardSummaryRow = {
+  id: string;
+  title: string;
+  subtitle?: string;
+  transaksi: number;
+  qty: number;
+  omzet: number;
+  outletCount?: number;
+};
+
+const sumTransactionQty = (trx: Transaction) => trx.items.reduce((sum, item) => sum + item.kuantiti, 0);
+
+function buildProductSummary(transactions: Transaction[]): DashboardSummaryRow[] {
+  const rows = new Map<string, DashboardSummaryRow & { trxIds: Set<string> }>();
+
+  transactions.filter((trx) => trx.status === 'COMPLETED').forEach((trx) => {
+    trx.items.forEach((item) => {
+      const row = rows.get(item.productId) ?? {
+        id: item.productId,
+        title: item.product.namaProduk,
+        subtitle: item.product.kode,
+        transaksi: 0,
+        qty: 0,
+        omzet: 0,
+        trxIds: new Set<string>(),
+      };
+      row.trxIds.add(trx.id);
+      row.transaksi = row.trxIds.size;
+      row.qty += item.kuantiti;
+      row.omzet += item.subTotal;
+      rows.set(item.productId, row);
+    });
+  });
+
+  return Array.from(rows.values())
+    .map(({ trxIds: _trxIds, ...row }) => row)
+    .sort((a, b) => b.omzet - a.omzet || b.qty - a.qty || a.title.localeCompare(b.title));
+}
+
+function buildTapSummary(transactions: Transaction[]): DashboardSummaryRow[] {
+  const rows = new Map<string, DashboardSummaryRow & { outlets: Set<string> }>();
+
+  transactions.filter((trx) => trx.status === 'COMPLETED').forEach((trx) => {
+    const tap = trx.outlet.tap;
+    const row = rows.get(tap) ?? {
+      id: tap,
+      title: tap,
+      transaksi: 0,
+      qty: 0,
+      omzet: 0,
+      outletCount: 0,
+      outlets: new Set<string>(),
+    };
+    row.transaksi += 1;
+    row.qty += sumTransactionQty(trx);
+    row.omzet += trx.totalTagihan;
+    row.outlets.add(trx.outletId);
+    row.outletCount = row.outlets.size;
+    rows.set(tap, row);
+  });
+
+  return Array.from(rows.values())
+    .map(({ outlets: _outlets, ...row }) => row)
+    .sort((a, b) => b.omzet - a.omzet || b.transaksi - a.transaksi || a.title.localeCompare(b.title));
+}
+
+function buildSalesforceSummary(transactions: Transaction[]): DashboardSummaryRow[] {
+  const rows = new Map<string, DashboardSummaryRow & { outlets: Set<string> }>();
+
+  transactions.filter((trx) => trx.status === 'COMPLETED').forEach((trx) => {
+    const row = rows.get(trx.salesforceId) ?? {
+      id: trx.salesforceId,
+      title: trx.salesforce.nama,
+      subtitle: `${trx.salesforce.tap} • @${trx.salesforce.username}`,
+      transaksi: 0,
+      qty: 0,
+      omzet: 0,
+      outletCount: 0,
+      outlets: new Set<string>(),
+    };
+    row.transaksi += 1;
+    row.qty += sumTransactionQty(trx);
+    row.omzet += trx.totalTagihan;
+    row.outlets.add(trx.outletId);
+    row.outletCount = row.outlets.size;
+    rows.set(trx.salesforceId, row);
+  });
+
+  return Array.from(rows.values())
+    .map(({ outlets: _outlets, ...row }) => row)
+    .sort((a, b) => b.omzet - a.omzet || b.transaksi - a.transaksi || a.title.localeCompare(b.title));
+}
 
 export default function DashboardPage() {
   const { user, users, transactions } = useAppStore();
@@ -45,6 +139,9 @@ export default function DashboardPage() {
   }, [allVisibleTrx, selectedTap, selectedSalesforce, dateFrom, dateTo]);
 
   const summary = useMemo(() => getSummaryForTransactions(filteredTrx), [filteredTrx]);
+  const productSummary = useMemo(() => buildProductSummary(filteredTrx), [filteredTrx]);
+  const tapSummary = useMemo(() => buildTapSummary(filteredTrx), [filteredTrx]);
+  const salesforceSummary = useMemo(() => buildSalesforceSummary(filteredTrx), [filteredTrx]);
   const recentTrx = filteredTrx.slice(0, 5);
 
   const activeFilterCount = [
@@ -260,6 +357,21 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* Admin Summary Tables */}
+      {isAdminOrAbove && (
+        <div className="px-4 mt-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-h2 text-text-primary">Summary Admin</h3>
+            <p className="text-caption text-text-secondary">{summary.totalTransaksi} transaksi</p>
+          </div>
+          <div className="grid gap-3 xl:grid-cols-3">
+            <SummaryTableCard title="Per Produk" rows={productSummary} emptyLabel="Belum ada produk terjual" />
+            <SummaryTableCard title="Per TAP" rows={tapSummary} emptyLabel="Belum ada transaksi per TAP" showOutlet />
+            <SummaryTableCard title="Per Salesforce" rows={salesforceSummary} emptyLabel="Belum ada transaksi per Salesforce" showOutlet />
+          </div>
+        </div>
+      )}
+
       {/* Quick Actions */}
       <div className="px-4 mt-5">
         <div className="card bg-gradient-to-r from-primary to-primary-dark p-4 hover:shadow-none">
@@ -373,6 +485,67 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function SummaryTableCard({
+  title,
+  rows,
+  emptyLabel,
+  showOutlet = false,
+}: {
+  title: string;
+  rows: DashboardSummaryRow[];
+  emptyLabel: string;
+  showOutlet?: boolean;
+}) {
+  return (
+    <div className="card p-0 overflow-hidden">
+      <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3">
+        <h4 className="text-body font-semibold text-text-primary">{title}</h4>
+        <span className="text-caption text-text-secondary">{rows.length} baris</span>
+      </div>
+      {rows.length === 0 ? (
+        <div className="px-4 py-8 text-center">
+          <p className="text-body text-text-secondary">{emptyLabel}</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[520px] text-left">
+            <thead className="bg-surface">
+              <tr className="text-[10px] uppercase font-bold text-text-secondary">
+                <th className="px-4 py-2.5 w-[38%]">Nama</th>
+                <th className="px-3 py-2.5 text-right">Trx</th>
+                {showOutlet && <th className="px-3 py-2.5 text-right">Outlet</th>}
+                <th className="px-3 py-2.5 text-right">Qty</th>
+                <th className="px-4 py-2.5 text-right">Omset</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/70">
+              {rows.map((row, index) => (
+                <tr key={row.id} className="hover:bg-surface/60 transition-colors">
+                  <td className="px-4 py-3">
+                    <div className="flex items-start gap-2.5">
+                      <span className="mt-0.5 w-5 h-5 rounded-md bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center shrink-0">
+                        {index + 1}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-body font-semibold text-text-primary truncate">{row.title}</p>
+                        {row.subtitle && <p className="text-caption text-text-secondary truncate">{row.subtitle}</p>}
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 text-right text-body font-semibold text-text-primary">{row.transaksi}</td>
+                  {showOutlet && <td className="px-3 py-3 text-right text-body text-text-primary">{row.outletCount ?? 0}</td>}
+                  <td className="px-3 py-3 text-right text-body text-text-primary">{row.qty}</td>
+                  <td className="px-4 py-3 text-right text-body font-bold text-text-primary">{formatCurrency(row.omzet)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
