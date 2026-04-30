@@ -8,6 +8,7 @@ import BottomNav from '@/components/layout/BottomNav';
 import DesktopSidebar from '@/components/layout/DesktopSidebar';
 import Toast from '@/components/ui/Toast';
 import UploadLockOverlay from '@/components/ui/UploadLockOverlay';
+import ScrollToTopButton from '@/components/ui/ScrollToTopButton';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -57,6 +58,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </div>
       </div>
+      <ScrollToTopButton />
       <Toast />
       <UploadLockOverlay />
     </div>

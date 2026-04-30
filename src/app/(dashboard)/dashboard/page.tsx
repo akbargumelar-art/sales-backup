@@ -15,9 +15,52 @@ type DashboardSummaryRow = {
   omzet: number;
   outletCount?: number;
   salesforceCount?: number;
+  tapName?: string;
 };
 
 const sumTransactionQty = (trx: Transaction) => trx.items.reduce((sum, item) => sum + item.kuantiti, 0);
+
+type SummarySortKey = 'title' | 'tapName' | 'transaksi' | 'outletCount' | 'salesforceCount' | 'qty' | 'omzet';
+type SummarySort = { key: SummarySortKey; direction: 'asc' | 'desc' } | null;
+
+const getSummarySortValue = (row: DashboardSummaryRow, key: SummarySortKey) => {
+  switch (key) {
+    case 'title':
+      return row.title;
+    case 'tapName':
+      return row.tapName ?? '';
+    case 'transaksi':
+      return row.transaksi;
+    case 'outletCount':
+      return row.outletCount ?? 0;
+    case 'salesforceCount':
+      return row.salesforceCount ?? 0;
+    case 'qty':
+      return row.qty;
+    case 'omzet':
+      return row.omzet;
+    default:
+      return '';
+  }
+};
+
+function sortSummaryRows(rows: DashboardSummaryRow[], sort: SummarySort) {
+  if (!sort) return rows;
+
+  const direction = sort.direction === 'asc' ? 1 : -1;
+
+  return [...rows].sort((a, b) => {
+    const valueA = getSummarySortValue(a, sort.key);
+    const valueB = getSummarySortValue(b, sort.key);
+    const compared = typeof valueA === 'number' && typeof valueB === 'number'
+      ? valueA - valueB
+      : String(valueA).localeCompare(String(valueB), 'id', { numeric: true, sensitivity: 'base' });
+
+    return compared === 0
+      ? a.title.localeCompare(b.title, 'id', { numeric: true, sensitivity: 'base' })
+      : compared * direction;
+  });
+}
 
 function buildProductSummary(transactions: Transaction[]): DashboardSummaryRow[] {
   const rows = new Map<string, DashboardSummaryRow & { trxIds: Set<string> }>();
@@ -113,7 +156,8 @@ function buildSalesforceSummary(transactions: Transaction[]): DashboardSummaryRo
     const row = rows.get(trx.salesforceId) ?? {
       id: trx.salesforceId,
       title: trx.salesforce.nama,
-      subtitle: `${trx.salesforce.tap} • @${trx.salesforce.username}`,
+      subtitle: `@${trx.salesforce.username}`,
+      tapName: trx.salesforce.tap,
       transaksi: 0,
       qty: 0,
       omzet: 0,
@@ -419,6 +463,7 @@ export default function DashboardPage() {
               title="Per Salesforce"
               rows={salesforceSummary}
               emptyLabel="Belum ada transaksi per Salesforce"
+              showTap
               showOutlet
               isOpen={openSummaryTables.salesforce}
               onToggle={() => setOpenSummaryTables((prev) => ({ ...prev, salesforce: !prev.salesforce }))}
@@ -559,6 +604,7 @@ function SummaryTableCard({
   onToggle,
   showOutlet = false,
   showSalesforce = false,
+  showTap = false,
   totalRow,
 }: {
   title: string;
@@ -568,8 +614,18 @@ function SummaryTableCard({
   onToggle: () => void;
   showOutlet?: boolean;
   showSalesforce?: boolean;
+  showTap?: boolean;
   totalRow?: DashboardSummaryRow;
 }) {
+  const [sort, setSort] = useState<SummarySort>(null);
+  const sortedRows = useMemo(() => sortSummaryRows(rows, sort), [rows, sort]);
+  const toggleSort = (key: SummarySortKey) => {
+    setSort((current) => {
+      if (!current || current.key !== key) return { key, direction: 'asc' };
+      return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' };
+    });
+  };
+
   return (
     <div className="card p-0 overflow-hidden">
       <button
@@ -599,19 +655,20 @@ function SummaryTableCard({
         </div>
       ) : isOpen ? (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-left">
+          <table className="w-full min-w-[840px] text-left">
             <thead className="bg-surface">
               <tr className="text-[10px] uppercase font-bold text-text-secondary">
-                <th className="px-4 py-2.5 w-[38%]">Nama</th>
-                <th className="px-3 py-2.5 text-right">Trx</th>
-                {showOutlet && <th className="px-3 py-2.5 text-right">Outlet</th>}
-                {showSalesforce && <th className="px-3 py-2.5 text-right">SF Unik</th>}
-                <th className="px-3 py-2.5 text-right">Qty</th>
-                <th className="px-4 py-2.5 text-right">Omset</th>
+                <SortableSummaryHeader label="Nama" sortKey="title" sort={sort} onSort={toggleSort} className="px-4 py-2.5 w-[34%]" />
+                {showTap && <SortableSummaryHeader label="TAP" sortKey="tapName" sort={sort} onSort={toggleSort} className="px-3 py-2.5" />}
+                <SortableSummaryHeader label="Trx" sortKey="transaksi" sort={sort} onSort={toggleSort} className="px-3 py-2.5 text-right" align="right" />
+                {showOutlet && <SortableSummaryHeader label="Outlet" sortKey="outletCount" sort={sort} onSort={toggleSort} className="px-3 py-2.5 text-right" align="right" />}
+                {showSalesforce && <SortableSummaryHeader label="SF Unik" sortKey="salesforceCount" sort={sort} onSort={toggleSort} className="px-3 py-2.5 text-right" align="right" />}
+                <SortableSummaryHeader label="Qty" sortKey="qty" sort={sort} onSort={toggleSort} className="px-3 py-2.5 text-right" align="right" />
+                <SortableSummaryHeader label="Omset" sortKey="omzet" sort={sort} onSort={toggleSort} className="px-4 py-2.5 text-right" align="right" />
               </tr>
             </thead>
             <tbody className="divide-y divide-border/70">
-              {rows.map((row, index) => (
+              {sortedRows.map((row, index) => (
                 <tr key={row.id} className="hover:bg-surface/60 transition-colors">
                   <td className="px-4 py-3">
                     <div className="flex items-start gap-2.5">
@@ -624,6 +681,7 @@ function SummaryTableCard({
                       </div>
                     </div>
                   </td>
+                  {showTap && <td className="px-3 py-3 text-body text-text-primary">{row.tapName ?? '-'}</td>}
                   <td className="px-3 py-3 text-right text-body font-semibold text-text-primary">{row.transaksi}</td>
                   {showOutlet && <td className="px-3 py-3 text-right text-body text-text-primary">{row.outletCount ?? 0}</td>}
                   {showSalesforce && <td className="px-3 py-3 text-right text-body text-text-primary">{row.salesforceCount ?? 0}</td>}
@@ -643,6 +701,7 @@ function SummaryTableCard({
                       <p className="text-body font-bold text-text-primary">{totalRow.title}</p>
                     </div>
                   </td>
+                  {showTap && <td className="px-3 py-3 text-body font-bold text-text-primary">{totalRow.tapName ?? '-'}</td>}
                   <td className="px-3 py-3 text-right text-body font-bold text-text-primary">{totalRow.transaksi}</td>
                   {showOutlet && <td className="px-3 py-3 text-right text-body font-bold text-text-primary">{totalRow.outletCount ?? 0}</td>}
                   {showSalesforce && <td className="px-3 py-3 text-right text-body font-bold text-text-primary">{totalRow.salesforceCount ?? 0}</td>}
@@ -655,5 +714,53 @@ function SummaryTableCard({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function SortableSummaryHeader({
+  label,
+  sortKey,
+  sort,
+  onSort,
+  className,
+  align = 'left',
+}: {
+  label: string;
+  sortKey: SummarySortKey;
+  sort: SummarySort;
+  onSort: (key: SummarySortKey) => void;
+  className?: string;
+  align?: 'left' | 'right';
+}) {
+  const activeDirection = sort?.key === sortKey ? sort.direction : null;
+  const isNumeric = !['title', 'tapName'].includes(sortKey);
+  const indicator = activeDirection
+    ? activeDirection === 'asc'
+      ? isNumeric ? '0-9' : 'A-Z'
+      : isNumeric ? '9-0' : 'Z-A'
+    : '';
+
+  return (
+    <th
+      className={className}
+      aria-sort={activeDirection ? (activeDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={`w-full inline-flex items-center gap-1.5 rounded-md py-1 text-[10px] uppercase font-bold text-text-secondary hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/20 ${align === 'right' ? 'justify-end' : 'justify-start'}`}
+      >
+        <span>{label}</span>
+        {activeDirection ? (
+          <span className="text-[9px] text-primary">{indicator}</span>
+        ) : (
+          <svg className="text-text-secondary/50" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+            <path d="M8 7h8" />
+            <path d="M8 12h6" />
+            <path d="M8 17h4" />
+          </svg>
+        )}
+      </button>
+    </th>
   );
 }

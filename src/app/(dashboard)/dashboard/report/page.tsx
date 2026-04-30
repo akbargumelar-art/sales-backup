@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/store/useAppStore';
 import {
   getVisibleTransactions, getViewableTaps, formatCurrency, formatDateTime,
@@ -12,6 +13,7 @@ import type { TransactionStatus } from '@/types';
 const getRoleLabel = (role: string) => role.replace('_', ' ');
 
 export default function ReportPage() {
+  const router = useRouter();
   const {
     user,
     users,
@@ -310,7 +312,21 @@ export default function ReportPage() {
               <p className="text-body text-text-secondary">Tidak ada transaksi ditemukan</p>
             </div>
           ) : filtered.map((trx, i) => (
-            <div key={trx.id} className="card p-3.5 border border-transparent hover:border-primary/20 transition-all" style={{ animationDelay: `${i * 50}ms` }}>
+            <div
+              key={trx.id}
+              role="link"
+              tabIndex={0}
+              onClick={() => router.push(`/sales/${trx.id}`)}
+              onKeyDown={(event) => {
+                if (event.target !== event.currentTarget) return;
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  router.push(`/sales/${trx.id}`);
+                }
+              }}
+              className="card p-3.5 border border-transparent hover:border-primary/20 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              style={{ animationDelay: `${i * 50}ms` }}
+            >
               <div className="flex items-start justify-between">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -347,8 +363,8 @@ export default function ReportPage() {
                     <div className="mt-2 p-2.5 rounded-xl bg-amber-50 border border-amber-200">
                       <p className="text-[11px] text-amber-800 font-medium mb-2">⚠️ Admin meminta pembatalan transaksi ini</p>
                       <div className="flex gap-2">
-                        <button onClick={() => handleSfApprove(trx.id)} className="flex-1 py-1.5 rounded-lg bg-red-500 text-white text-caption font-medium hover:bg-red-600 transition-colors">Setujui Batal</button>
-                        <button onClick={() => handleSfReject(trx.id)} className="flex-1 py-1.5 rounded-lg bg-white border border-border text-text-primary text-caption font-medium hover:bg-slate-50 transition-colors">Tolak</button>
+                        <button onClick={(event) => { event.stopPropagation(); handleSfApprove(trx.id); }} className="flex-1 py-1.5 rounded-lg bg-red-500 text-white text-caption font-medium hover:bg-red-600 transition-colors">Setujui Batal</button>
+                        <button onClick={(event) => { event.stopPropagation(); handleSfReject(trx.id); }} className="flex-1 py-1.5 rounded-lg bg-white border border-border text-text-primary text-caption font-medium hover:bg-slate-50 transition-colors">Tolak</button>
                       </div>
                     </div>
                   )}
@@ -365,8 +381,8 @@ export default function ReportPage() {
                     <div className="mt-2 p-2.5 rounded-xl bg-blue-50 border border-blue-200">
                       <p className="text-[11px] text-blue-800 font-medium mb-2">📋 Salesforce mengajukan pembatalan transaksi ini</p>
                       <div className="flex gap-2">
-                        <button onClick={() => handleAdminApprove(trx.id)} className="flex-1 py-1.5 rounded-lg bg-red-500 text-white text-caption font-medium hover:bg-red-600 transition-colors">Setujui Batal</button>
-                        <button onClick={() => handleAdminReject(trx.id)} className="flex-1 py-1.5 rounded-lg bg-white border border-border text-text-primary text-caption font-medium hover:bg-slate-50 transition-colors">Tolak</button>
+                        <button onClick={(event) => { event.stopPropagation(); handleAdminApprove(trx.id); }} className="flex-1 py-1.5 rounded-lg bg-red-500 text-white text-caption font-medium hover:bg-red-600 transition-colors">Setujui Batal</button>
+                        <button onClick={(event) => { event.stopPropagation(); handleAdminReject(trx.id); }} className="flex-1 py-1.5 rounded-lg bg-white border border-border text-text-primary text-caption font-medium hover:bg-slate-50 transition-colors">Tolak</button>
                       </div>
                     </div>
                   )}
@@ -376,11 +392,11 @@ export default function ReportPage() {
                   <p className={`text-body font-bold ${trx.status === 'CANCELLED' ? 'text-text-secondary line-through' : 'text-text-primary'}`}>{formatCurrency(trx.totalTagihan)}</p>
                   {/* Admin: request cancel for COMPLETED */}
                   {isAdminOrAbove && trx.status === 'COMPLETED' && (
-                    <button onClick={() => openModal(trx.id, 'ADMIN')} className="px-2 py-1 rounded-lg text-[10px] font-medium text-error bg-red-50 hover:bg-red-100 transition-colors">Batalkan</button>
+                    <button onClick={(event) => { event.stopPropagation(); openModal(trx.id, 'ADMIN'); }} className="px-2 py-1 rounded-lg text-[10px] font-medium text-error bg-red-50 hover:bg-red-100 transition-colors">Batalkan</button>
                   )}
                   {/* SF: request cancel for own COMPLETED transaction */}
                   {isSalesforce && trx.status === 'COMPLETED' && trx.salesforceId === user?.id && (
-                    <button onClick={() => openModal(trx.id, 'SALESFORCE')} className="px-2 py-1 rounded-lg text-[10px] font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors">Ajukan Batal</button>
+                    <button onClick={(event) => { event.stopPropagation(); openModal(trx.id, 'SALESFORCE'); }} className="px-2 py-1 rounded-lg text-[10px] font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors">Ajukan Batal</button>
                   )}
                 </div>
               </div>

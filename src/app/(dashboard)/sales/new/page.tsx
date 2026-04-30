@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { getVisibleOutlets, formatCurrency } from '@/lib/app-data';
 import type { SalesLineItem, Product, Outlet } from '@/types';
@@ -44,6 +44,34 @@ export default function SalesNewPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAddOutlet, setShowAddOutlet] = useState(false);
+  const outletComboboxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!outletDropdownOpen) return;
+
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      const target = event.target;
+      if (target instanceof Node && !outletComboboxRef.current?.contains(target)) {
+        setOutletDropdownOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOutletDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('touchstart', handlePointerDown, { passive: true });
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('touchstart', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [outletDropdownOpen]);
 
   // WA Number validation
   const validateWaNumber = (val: string) => {
@@ -232,7 +260,7 @@ export default function SalesNewPage() {
           {/* ID Outlet Combobox */}
           <div className="mb-3">
             <label className="form-label">ID Outlet <span className="text-error">*</span></label>
-            <div className="relative">
+            <div ref={outletComboboxRef} className="relative">
               <input
                 type="text"
                 value={selectedOutlet ? `${selectedOutlet.idOutlet} — ${selectedOutlet.namaOutlet}` : outletSearch}
@@ -248,7 +276,13 @@ export default function SalesNewPage() {
               {outletDropdownOpen && !selectedOutlet && (
                 <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl shadow-lg border border-border max-h-48 overflow-y-auto z-30 animate-scale-in">
                   {filteredOutlets.length === 0 ? (
-                    <p className="p-3 text-caption text-text-secondary text-center">Outlet tidak ditemukan</p>
+                    <button
+                      type="button"
+                      onClick={() => setOutletDropdownOpen(false)}
+                      className="w-full p-3 text-caption text-text-secondary text-center hover:bg-surface transition-colors"
+                    >
+                      Outlet tidak ditemukan
+                    </button>
                   ) : (
                     filteredOutlets.map(o => (
                       <button key={o.id} onClick={() => selectOutlet(o)}
