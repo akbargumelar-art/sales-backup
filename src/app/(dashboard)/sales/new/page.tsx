@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { getVisibleOutlets, formatCurrency } from '@/lib/app-data';
 import type { SalesLineItem, Product, Outlet } from '@/types';
@@ -31,7 +31,7 @@ const emptyItem = (): SalesLineItem => ({
 });
 
 export default function SalesNewPage() {
-  const { user, products, showToast, addOutlet, submitTransaction } = useAppStore();
+  const { user, products, outlets, showToast, addOutlet, submitTransaction } = useAppStore();
   const [selectedOutlet, setSelectedOutlet] = useState<Outlet | null>(null);
   const [outletSearch, setOutletSearch] = useState('');
   const [outletDropdownOpen, setOutletDropdownOpen] = useState(false);
@@ -82,7 +82,10 @@ export default function SalesNewPage() {
   const isNamaValid = namaOwner.trim().length >= 2 && !namaError;
 
   // Filter outlets based on user role and allowed TAPs
-  const userOutlets = user ? getVisibleOutlets(user) : [];
+  const userOutlets = useMemo(() => {
+    void outlets;
+    return user ? getVisibleOutlets(user) : [];
+  }, [outlets, user]);
   const filteredOutlets = userOutlets.filter(o =>
     o.idOutlet.toLowerCase().includes(outletSearch.toLowerCase()) ||
     o.namaOutlet.toLowerCase().includes(outletSearch.toLowerCase())
@@ -162,8 +165,26 @@ export default function SalesNewPage() {
   const handleSubmit = async () => {
     setIsSubmitting(true);
     await new Promise(r => setTimeout(r, 400));
+    const latestOutlet = selectedOutlet
+      ? userOutlets.find((outlet) => outlet.id === selectedOutlet.id)
+        ?? userOutlets.find((outlet) => outlet.idOutlet.toUpperCase() === selectedOutlet.idOutlet.toUpperCase())
+      : null;
+
+    if (!latestOutlet) {
+      setIsSubmitting(false);
+      setShowConfirm(false);
+      setSelectedOutlet(null);
+      showToast('Outlet sudah berubah atau tidak ditemukan. Pilih ulang outlet.', 'error');
+      return;
+    }
+
+    if (latestOutlet.id !== selectedOutlet?.id) {
+      setSelectedOutlet(latestOutlet);
+    }
+
     const result = user ? await submitTransaction({
-      outletId: selectedOutlet!.id,
+      outletId: latestOutlet.id,
+      idOutlet: latestOutlet.idOutlet,
       salesforceId: user.id,
       ownerName: namaOwner,
       ownerPhone: nomorWaOwner,

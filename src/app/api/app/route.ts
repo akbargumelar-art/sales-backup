@@ -253,7 +253,49 @@ export async function POST(request: Request) {
         break;
       }
       case 'submitTransaction': {
-        const items = Array.isArray(payload.items) ? payload.items : [];
+        const items: any[] = Array.isArray(payload.items) ? payload.items : [];
+        const outletId = String(payload.outletId ?? '').trim();
+        const idOutlet = String(payload.idOutlet ?? '').trim().toUpperCase();
+        if (!outletId && !idOutlet) {
+          return NextResponse.json({ message: 'Outlet belum dipilih. Silakan pilih ulang outlet.' }, { status: 400 });
+        }
+        const outlet = await prisma.outlet.findFirst({
+          where: {
+            OR: [
+              ...(outletId ? [{ id: outletId }] : []),
+              ...(idOutlet ? [{ idOutlet }] : []),
+            ],
+          },
+        });
+
+        if (!outlet) {
+          return NextResponse.json({ message: 'Outlet sudah berubah atau tidak ditemukan. Silakan pilih ulang outlet.' }, { status: 404 });
+        }
+
+        const allowedTaps = Array.isArray(currentUser.allowedTaps) ? currentUser.allowedTaps.map(String) : [];
+        const canUseOutlet =
+          currentUser.role === 'SUPER_ADMIN' ||
+          allowedTaps.includes('ALL') ||
+          (currentUser.role === 'ADMIN' && allowedTaps.includes(outlet.tap)) ||
+          (currentUser.role === 'SALESFORCE' && outlet.salesforceUsername?.toLowerCase() === currentUser.username.toLowerCase());
+
+        if (!canUseOutlet) {
+          return NextResponse.json({ message: 'Outlet ini tidak tersedia untuk user Anda. Silakan pilih outlet lain.' }, { status: 403 });
+        }
+
+        const productIdList: string[] = [];
+        items.forEach((item) => {
+          const productId = String(item.productId ?? '');
+          if (productId) productIdList.push(productId);
+        });
+        const productIds = Array.from(new Set(productIdList));
+        const validProductCount = productIds.length > 0
+          ? await prisma.product.count({ where: { id: { in: productIds } } })
+          : 0;
+        if (productIds.length === 0 || validProductCount !== productIds.length) {
+          return NextResponse.json({ message: 'Produk sudah berubah atau tidak ditemukan. Silakan pilih ulang produk.' }, { status: 404 });
+        }
+
         const now = new Date();
         const serialDay = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
         const countToday = await prisma.transaction.count({
@@ -266,7 +308,7 @@ export async function POST(request: Request) {
         await prisma.transaction.create({
           data: {
             nomorTransaksi: `TRX-${serialDay}-${String(countToday + 1).padStart(4, '0')}`,
-            outletId: String(payload.outletId ?? ''),
+            outletId: outlet.id,
             salesforceId: currentUser.id,
             status: 'COMPLETED',
             totalTagihan: items.reduce((sum: number, item: any) => sum + Number(item.subTotal ?? 0), 0),
@@ -355,6 +397,9 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return NextResponse.json({ message: 'Data dengan kode atau username tersebut sudah ada' }, { status: 409 });
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+      return NextResponse.json({ message: 'Data referensi tidak ditemukan. Muat ulang halaman lalu coba lagi.' }, { status: 409 });
     }
     const message = error instanceof Error ? error.message : 'Terjadi kesalahan server';
     return NextResponse.json({ message }, { status: 500 });

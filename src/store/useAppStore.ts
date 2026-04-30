@@ -71,6 +71,7 @@ interface TapInput {
 
 interface SubmitTransactionInput {
   outletId: string;
+  idOutlet?: string;
   salesforceId: string;
   ownerName: string;
   ownerPhone: string;

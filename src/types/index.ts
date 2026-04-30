@@ -109,6 +109,7 @@ export interface TransactionItem {
 // ─── FORM TYPES ──────────────────────────────────────
 export interface SalesFormData {
   outletId: string;
+  idOutlet?: string;
   catatan: string;
   items: SalesLineItem[];
 }
