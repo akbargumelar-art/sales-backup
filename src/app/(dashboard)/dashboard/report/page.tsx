@@ -3,9 +3,10 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/store/useAppStore';
+import SearchableMultiSelect from '@/components/ui/SearchableMultiSelect';
 import {
   getVisibleTransactions, getViewableTaps, formatCurrency, formatDateTime,
-  getStatusColor, getStatusLabel,
+  getStatusColor, getStatusLabel, buildProductFilterOptions, filterTransactionsByProducts,
 } from '@/lib/app-data';
 import { downloadCsv } from '@/lib/csv';
 import type { TransactionStatus } from '@/types';
@@ -17,6 +18,7 @@ export default function ReportPage() {
   const {
     user,
     users,
+    products,
     transactions,
     showToast,
     requestCancelTransaction,
@@ -29,6 +31,7 @@ export default function ReportPage() {
   const [statusFilter, setStatusFilter] = useState<TransactionStatus | 'ALL'>('ALL');
   const [selectedTap, setSelectedTap] = useState<string>('ALL');
   const [selectedSalesforce, setSelectedSalesforce] = useState<string>('ALL');
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -56,25 +59,34 @@ export default function ReportPage() {
     });
   }, [isAdminOrAbove, user, selectedTap, users]);
   const visibleSalesforces = visibleInputUsers;
+  const productFilterOptions = useMemo(() => buildProductFilterOptions(products, allVisibleTrx), [products, allVisibleTrx]);
 
   const filtered = useMemo(() => {
-    return allVisibleTrx.filter(trx => {
+    const base = allVisibleTrx.filter(trx => {
       if (statusFilter !== 'ALL' && trx.status !== statusFilter) return false;
       if (selectedTap !== 'ALL' && trx.outlet.tap !== selectedTap) return false;
       if (selectedSalesforce !== 'ALL' && trx.salesforceId !== selectedSalesforce) return false;
       if (dateFrom) { const f = new Date(dateFrom); f.setHours(0,0,0,0); if (new Date(trx.submittedAt) < f) return false; }
       if (dateTo) { const t = new Date(dateTo); t.setHours(23,59,59,999); if (new Date(trx.submittedAt) > t) return false; }
+      return true;
+    });
+
+    return filterTransactionsByProducts(base, selectedProductIds).filter(trx => {
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         return trx.nomorTransaksi.toLowerCase().includes(q) ||
           trx.outlet.namaOutlet.toLowerCase().includes(q) ||
           trx.salesforce.nama.toLowerCase().includes(q) ||
           trx.salesforce.username.toLowerCase().includes(q) ||
-          trx.salesforce.role.toLowerCase().includes(q);
+          trx.salesforce.role.toLowerCase().includes(q) ||
+          trx.items.some((item) => (
+            item.product.namaProduk.toLowerCase().includes(q) ||
+            item.product.kode.toLowerCase().includes(q)
+          ));
       }
       return true;
     });
-  }, [allVisibleTrx, statusFilter, selectedTap, selectedSalesforce, dateFrom, dateTo, searchQuery]);
+  }, [allVisibleTrx, statusFilter, selectedTap, selectedSalesforce, selectedProductIds, dateFrom, dateTo, searchQuery]);
 
   const statusCounts = useMemo(() => {
     const base = allVisibleTrx.filter(t => {
@@ -82,15 +94,16 @@ export default function ReportPage() {
       if (selectedSalesforce !== 'ALL' && t.salesforceId !== selectedSalesforce) return false;
       return true;
     });
+    const productFilteredBase = filterTransactionsByProducts(base, selectedProductIds);
     return {
-      ALL: base.length,
-      COMPLETED: base.filter(t => t.status === 'COMPLETED').length,
-      PENDING_CANCEL: base.filter(t => t.status === 'PENDING_CANCEL').length,
-      CANCELLED: base.filter(t => t.status === 'CANCELLED').length,
+      ALL: productFilteredBase.length,
+      COMPLETED: productFilteredBase.filter(t => t.status === 'COMPLETED').length,
+      PENDING_CANCEL: productFilteredBase.filter(t => t.status === 'PENDING_CANCEL').length,
+      CANCELLED: productFilteredBase.filter(t => t.status === 'CANCELLED').length,
     };
-  }, [allVisibleTrx, selectedTap, selectedSalesforce]);
+  }, [allVisibleTrx, selectedTap, selectedSalesforce, selectedProductIds]);
 
-  const activeFilterCount = [dateFrom || dateTo ? 1 : 0, selectedTap !== 'ALL' ? 1 : 0, selectedSalesforce !== 'ALL' ? 1 : 0].reduce((a, b) => a + b, 0);
+  const activeFilterCount = [dateFrom || dateTo ? 1 : 0, selectedTap !== 'ALL' ? 1 : 0, selectedSalesforce !== 'ALL' ? 1 : 0, selectedProductIds.length > 0 ? 1 : 0].reduce((a, b) => a + b, 0);
 
   // Admin submits cancel request → SF must approve
   const handleAdminRequestCancel = useCallback(async () => {
@@ -261,8 +274,18 @@ export default function ReportPage() {
               </div>
             </div>
           )}
+          <SearchableMultiSelect
+            label="Nama Produk"
+            options={productFilterOptions}
+            selectedValues={selectedProductIds}
+            onChange={setSelectedProductIds}
+            placeholder="Semua Produk"
+            searchPlaceholder="Cari nama atau kode produk..."
+            emptyLabel="Produk tidak ditemukan"
+            selectedCountLabel={(count) => `${count} produk dipilih`}
+          />
           <div className="flex items-center gap-2 pt-1">
-            {activeFilterCount > 0 && <button onClick={() => { setDateFrom(''); setDateTo(''); setSelectedTap('ALL'); setSelectedSalesforce('ALL'); }} className="px-3 py-1.5 rounded-lg text-caption font-medium text-error hover:bg-red-50 transition-colors">Reset</button>}
+            {activeFilterCount > 0 && <button onClick={() => { setDateFrom(''); setDateTo(''); setSelectedTap('ALL'); setSelectedSalesforce('ALL'); setSelectedProductIds([]); }} className="px-3 py-1.5 rounded-lg text-caption font-medium text-error hover:bg-red-50 transition-colors">Reset</button>}
             <button onClick={() => setShowFilters(false)} className="ml-auto px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-caption font-medium">Terapkan</button>
           </div>
         </div>
@@ -272,7 +295,7 @@ export default function ReportPage() {
         {/* Search */}
         <div className="relative mb-3">
           <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-secondary/50" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Cari transaksi, outlet, atau user input..." className="input-field pl-10" />
+          <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Cari transaksi, outlet, user input, atau produk..." className="input-field pl-10" />
         </div>
 
         {/* Status tabs */}

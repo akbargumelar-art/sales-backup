@@ -1,5 +1,11 @@
-import type { Outlet, Transaction, User } from '@/types';
+import type { Outlet, Product, Transaction, User } from '@/types';
 import { useAppStore } from '@/store/useAppStore';
+
+type ProductFilterOption = {
+  value: string;
+  label: string;
+  description?: string;
+};
 
 export function getActiveTapCodes(): string[] {
   return useAppStore.getState().taps.filter((tap) => tap.isActive).map((tap) => tap.kode);
@@ -63,6 +69,51 @@ export function getSummaryForTransactions(trxList: Transaction[]) {
     totalOutlet: new Set(completed.map((item) => item.outletId)).size,
     totalProdukTerjual: completed.reduce((sum, trx) => sum + trx.items.reduce((itemSum, item) => itemSum + item.kuantiti, 0), 0),
   };
+}
+
+export function buildProductFilterOptions(products: Product[], trxList: Transaction[]): ProductFilterOption[] {
+  const productMap = new Map<string, ProductFilterOption>();
+
+  products.forEach((product) => {
+    productMap.set(product.id, {
+      value: product.id,
+      label: product.namaProduk,
+      description: `${product.kode} - ${product.kategori}`,
+    });
+  });
+
+  trxList.forEach((trx) => {
+    trx.items.forEach((item) => {
+      if (productMap.has(item.productId)) return;
+      productMap.set(item.productId, {
+        value: item.productId,
+        label: item.product.namaProduk,
+        description: `${item.product.kode} - ${item.product.kategori}`,
+      });
+    });
+  });
+
+  return Array.from(productMap.values()).sort((a, b) => (
+    a.label.localeCompare(b.label, 'id', { numeric: true, sensitivity: 'base' })
+  ));
+}
+
+export function filterTransactionsByProducts(trxList: Transaction[], selectedProductIds: string[]): Transaction[] {
+  if (selectedProductIds.length === 0) return trxList;
+
+  const productIdSet = new Set(selectedProductIds);
+
+  return trxList.reduce<Transaction[]>((result, trx) => {
+    const matchingItems = trx.items.filter((item) => productIdSet.has(item.productId));
+    if (matchingItems.length === 0) return result;
+
+    result.push({
+      ...trx,
+      items: matchingItems,
+      totalTagihan: matchingItems.reduce((sum, item) => sum + item.subTotal, 0),
+    });
+    return result;
+  }, []);
 }
 
 export function formatCurrency(amount: number): string {

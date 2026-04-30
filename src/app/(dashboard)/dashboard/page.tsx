@@ -3,7 +3,8 @@
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useAppStore } from '@/store/useAppStore';
-import { getVisibleTransactions, getSummaryForTransactions, getViewableTaps, getPendingCancelForSalesforce, getPendingCancelBySalesforceForAdmin, formatCurrency, formatDateTime, getStatusColor, getStatusLabel } from '@/lib/app-data';
+import SearchableMultiSelect from '@/components/ui/SearchableMultiSelect';
+import { getVisibleTransactions, getSummaryForTransactions, getViewableTaps, getPendingCancelForSalesforce, getPendingCancelBySalesforceForAdmin, buildProductFilterOptions, filterTransactionsByProducts, formatCurrency, formatDateTime, getStatusColor, getStatusLabel } from '@/lib/app-data';
 import type { Transaction } from '@/types';
 
 type DashboardSummaryRow = {
@@ -178,9 +179,10 @@ function buildSalesforceSummary(transactions: Transaction[]): DashboardSummaryRo
 }
 
 export default function DashboardPage() {
-  const { user, users, transactions } = useAppStore();
+  const { user, users, products, transactions } = useAppStore();
   const [selectedTap, setSelectedTap] = useState<string>('ALL');
   const [selectedSalesforce, setSelectedSalesforce] = useState<string>('ALL');
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [showFilters, setShowFilters] = useState(false);
@@ -212,14 +214,15 @@ export default function DashboardPage() {
 
   // Apply all filters
   const filteredTrx = useMemo(() => {
-    return allVisibleTrx.filter(t => {
+    const base = allVisibleTrx.filter(t => {
       if (selectedTap !== 'ALL' && t.outlet.tap !== selectedTap) return false;
       if (selectedSalesforce !== 'ALL' && t.salesforceId !== selectedSalesforce) return false;
       if (dateFrom) { const f = new Date(dateFrom); f.setHours(0, 0, 0, 0); if (new Date(t.submittedAt) < f) return false; }
       if (dateTo) { const d = new Date(dateTo); d.setHours(23, 59, 59, 999); if (new Date(t.submittedAt) > d) return false; }
       return true;
     });
-  }, [allVisibleTrx, selectedTap, selectedSalesforce, dateFrom, dateTo]);
+    return filterTransactionsByProducts(base, selectedProductIds);
+  }, [allVisibleTrx, selectedTap, selectedSalesforce, selectedProductIds, dateFrom, dateTo]);
 
   const summary = useMemo(() => getSummaryForTransactions(filteredTrx), [filteredTrx]);
   const productSummary = useMemo(() => buildProductSummary(filteredTrx), [filteredTrx]);
@@ -227,11 +230,20 @@ export default function DashboardPage() {
   const tapTotalSummary = useMemo(() => buildTapTotalSummary(filteredTrx), [filteredTrx]);
   const salesforceSummary = useMemo(() => buildSalesforceSummary(filteredTrx), [filteredTrx]);
   const recentTrx = filteredTrx.slice(0, 5);
+  const productFilterOptions = useMemo(() => buildProductFilterOptions(products, allVisibleTrx), [products, allVisibleTrx]);
+  const productFilterLabel = useMemo(() => {
+    if (selectedProductIds.length === 0) return '';
+    const selectedLabels = selectedProductIds
+      .map((productId) => productFilterOptions.find((option) => option.value === productId)?.label)
+      .filter(Boolean);
+    return selectedLabels.length === 1 ? selectedLabels[0] ?? '1 produk' : `${selectedProductIds.length} produk`;
+  }, [productFilterOptions, selectedProductIds]);
 
   const activeFilterCount = [
     dateFrom || dateTo ? 1 : 0,
     selectedTap !== 'ALL' ? 1 : 0,
     selectedSalesforce !== 'ALL' ? 1 : 0,
+    selectedProductIds.length > 0 ? 1 : 0,
   ].reduce((a, b) => a + b, 0);
 
   const today = new Date();
@@ -357,10 +369,21 @@ export default function DashboardPage() {
             </div>
           )}
 
+          <SearchableMultiSelect
+            label="Nama Produk"
+            options={productFilterOptions}
+            selectedValues={selectedProductIds}
+            onChange={setSelectedProductIds}
+            placeholder="Semua Produk"
+            searchPlaceholder="Cari nama atau kode produk..."
+            emptyLabel="Produk tidak ditemukan"
+            selectedCountLabel={(count) => `${count} produk dipilih`}
+          />
+
           <div className="flex items-center gap-2 pt-1">
             {activeFilterCount > 0 && (
               <button
-                onClick={() => { setDateFrom(''); setDateTo(''); setSelectedTap('ALL'); setSelectedSalesforce('ALL'); }}
+                onClick={() => { setDateFrom(''); setDateTo(''); setSelectedTap('ALL'); setSelectedSalesforce('ALL'); setSelectedProductIds([]); }}
                 className="px-3 py-1.5 rounded-lg text-caption font-medium text-error hover:bg-red-50 transition-colors"
               >
                 Reset
@@ -436,6 +459,13 @@ export default function DashboardPage() {
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
               {users.find(u => u.id === selectedSalesforce)?.nama}
               <button onClick={() => setSelectedSalesforce('ALL')}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+            </div>
+          )}
+          {selectedProductIds.length > 0 && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/5 border border-primary/20 text-caption text-primary">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+              {productFilterLabel}
+              <button onClick={() => setSelectedProductIds([])}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
             </div>
           )}
         </div>

@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tutorial Salesforce - SalesTrack</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #0f172a;
+      --panel: #ffffff;
+      --muted: #64748b;
+      --text: #0f172a;
+      --primary: #e3000f;
+      --accent: #ff6b00;
+      --green: #16a34a;
+      --line: #e2e8f0;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: white;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+    main { width: min(1180px, 100%); }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: 0;
+    }
+    p {
+      margin: 4px 0 0;
+      color: rgba(255,255,255,.62);
+      font-size: 13px;
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    button {
+      border: 0;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-weight: 700;
+      cursor: pointer;
+      background: rgba(255,255,255,.12);
+      color: white;
+    }
+    button.primary { background: var(--primary); }
+    button:disabled { opacity: .55; cursor: wait; }
+    .stage {
+      background: #111827;
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 24px 70px rgba(0,0,0,.45);
+    }
+    canvas {
+      width: 100%;
+      display: block;
+      background: white;
+      aspect-ratio: 16 / 9;
+    }
+    .status {
+      min-height: 22px;
+      margin-top: 12px;
+      color: rgba(255,255,255,.76);
+      font-size: 13px;
+    }
+    .hint {
+      margin-top: 8px;
+      color: rgba(255,255,255,.48);
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="topbar">
+      <div>
+        <h1>Tutorial Salesforce - SalesTrack</h1>
+        <p>Login awal, ganti password, input penjualan, dan submit transaksi.</p>
+      </div>
+      <div class="controls">
+        <button id="playBtn">Putar Preview</button>
+        <button id="recordBtn" class="primary">Export WebM</button>
+      </div>
+    </div>
+    <div class="stage">
+      <canvas id="canvas" width="1280" height="720"></canvas>
+    </div>
+    <div id="status" class="status">Siap. Klik "Putar Preview" atau "Export WebM".</div>
+    <div class="hint">File export akan bernama tutorial-salesforce-salestrack.webm. Bisa dikirim langsung atau dikonversi ke MP4 bila diperlukan.</div>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const playBtn = document.getElementById('playBtn');
+    const recordBtn = document.getElementById('recordBtn');
+    const statusEl = document.getElementById('status');
+
+    const W = canvas.width;
+    const H = canvas.height;
+    const FPS = 30;
+    const DURATION = 112;
+    const theme = {
+      bg: '#f8fafc',
+      phone: '#ffffff',
+      text: '#0f172a',
+      muted: '#64748b',
+      line: '#e2e8f0',
+      primary: '#e3000f',
+      primaryDark: '#b8000c',
+      accent: '#ff6b00',
+      green: '#16a34a',
+      red: '#dc2626',
+      blue: '#2563eb',
+      purple: '#7c3aed',
+      surface: '#f1f5f9',
+    };
+
+    const scenes = [
+      { start: 0, end: 7, title: 'Tutorial Salesforce', sub: 'Alur lengkap dari login awal sampai submit penjualan', step: '1/8' },
+      { start: 7, end: 20, screen: 'login', title: 'Login Awal', sub: 'Masukkan username dan password sementara dari admin.', step: '2/8' },
+      { start: 20, end: 32, screen: 'password', title: 'Ganti Password', sub: 'Buat password baru sebelum memakai aplikasi.', step: '3/8' },
+      { start: 32, end: 43, screen: 'dashboard', title: 'Dashboard Salesforce', sub: 'Setelah login, buka menu Input Penjualan.', step: '4/8' },
+      { start: 43, end: 58, screen: 'outlet', title: 'Pilih Outlet', sub: 'Cari outlet demo atau tambah outlet baru jika belum ada.', step: '5/8' },
+      { start: 58, end: 76, screen: 'products', title: 'Pilih Produk', sub: 'Pilih produk, atur kuantiti, dan aktifkan harga manual bila diperlukan.', step: '6/8' },
+      { start: 76, end: 91, screen: 'owner', title: 'Isi Data Owner', sub: 'Nomor WA harus valid dan nama owner minimal 2 karakter.', step: '7/8' },
+      { start: 91, end: 106, screen: 'confirm', title: 'Submit Transaksi', sub: 'Cek ringkasan, lalu konfirmasi transaksi.', step: '8/8' },
+      { start: 106, end: 112, screen: 'done', title: 'Selesai', sub: 'Transaksi tersimpan dan bisa dilihat pada Laporan Penjualan.', step: '8/8' },
+    ];
+
+    function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
+    function ease(x) { return 1 - Math.pow(1 - clamp(x, 0, 1), 3); }
+    function roundRect(x, y, w, h, r, fill, stroke) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+      if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+      if (stroke) { ctx.strokeStyle = stroke; ctx.stroke(); }
+    }
+    function text(value, x, y, size, color = theme.text, weight = 500, align = 'left') {
+      ctx.fillStyle = color;
+      ctx.font = `${weight} ${size}px Inter, Segoe UI, Arial`;
+      ctx.textAlign = align;
+      ctx.textBaseline = 'top';
+      ctx.fillText(value, x, y);
+    }
+    function multiline(value, x, y, size, color, maxWidth, lineHeight = size * 1.35, weight = 500) {
+      const words = value.split(' ');
+      let line = '';
+      let yy = y;
+      ctx.font = `${weight} ${size}px Inter, Segoe UI, Arial`;
+      ctx.fillStyle = color;
+      for (const word of words) {
+        const test = line ? `${line} ${word}` : word;
+        if (ctx.measureText(test).width > maxWidth && line) {
+          ctx.fillText(line, x, yy);
+          line = word;
+          yy += lineHeight;
+        } else {
+          line = test;
+        }
+      }
+      if (line) ctx.fillText(line, x, yy);
+    }
+    function field(label, value, x, y, w, opts = {}) {
+      text(label, x, y, 13, theme.muted, 700);
+      roundRect(x, y + 22, w, 50, 12, opts.disabled ? '#f8fafc' : '#fff', theme.line);
+      text(value, x + 16, y + 36, 18, opts.disabled ? theme.muted : theme.text, opts.bold ? 800 : 500);
+    }
+    function pill(value, x, y, fill, color = theme.text, w = null) {
+      ctx.font = '700 14px Inter, Segoe UI, Arial';
+      const width = w || ctx.measureText(value).width + 24;
+      roundRect(x, y, width, 30, 15, fill, null);
+      text(value, x + width / 2, y + 7, 14, color, 700, 'center');
+      return width;
+    }
+    function drawFrameBase(t) {
+      const grd = ctx.createLinearGradient(0, 0, W, H);
+      grd.addColorStop(0, '#f8fafc');
+      grd.addColorStop(1, '#eef2ff');
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, 0, W, H);
+
+      text('SalesTrack', 72, 44, 26, theme.text, 900);
+      text('Tutorial untuk user Salesforce', 72, 78, 15, theme.muted, 600);
+      text('Data demo: sales.demo / DemoSales123', 1208, 52, 14, theme.muted, 700, 'right');
+
+      const scene = getScene(t);
+      const local = (t - scene.start) / Math.max(1, scene.end - scene.start);
+      const alpha = ease(local);
+      ctx.globalAlpha = alpha;
+      text(scene.title, 72, 600, 34, theme.text, 900);
+      multiline(scene.sub, 72, 644, 18, theme.muted, 600, 520, 25, 500);
+      pill(scene.step, 72, 554, '#fee2e2', theme.primary, 70);
+      ctx.globalAlpha = 1;
+
+      roundRect(72, 690, 1136, 8, 4, '#e2e8f0', null);
+      roundRect(72, 690, 1136 * clamp(t / DURATION, 0, 1), 8, 4, theme.primary, null);
+    }
+    function phoneFrame() {
+      roundRect(720, 88, 360, 560, 34, '#0f172a', null);
+      roundRect(734, 104, 332, 528, 26, '#fff', null);
+      roundRect(840, 116, 120, 8, 4, '#0f172a', null);
+      return { x: 734, y: 104, w: 332, h: 528 };
+    }
+    function appHeader(p, title) {
+      roundRect(p.x, p.y, p.w, 56, 26, '#fff', null);
+      ctx.strokeStyle = theme.line;
+      ctx.beginPath(); ctx.moveTo(p.x, p.y + 56); ctx.lineTo(p.x + p.w, p.y + 56); ctx.stroke();
+      text(title, p.x + 18, p.y + 18, 18, theme.text, 900);
+    }
+    function card(x, y, w, h) { roundRect(x, y, w, h, 16, '#fff', '#e5e7eb'); }
+    function bottomNav(p, active) {
+      roundRect(p.x, p.y + p.h - 62, p.w, 62, 0, '#fff', theme.line);
+      const items = ['Dashboard', 'Input', 'Laporan'];
+      items.forEach((item, i) => {
+        const x = p.x + 55 + i * 110;
+        const activeColor = item === active ? theme.primary : '#94a3b8';
+        ctx.fillStyle = activeColor;
+        ctx.beginPath(); ctx.arc(x, p.y + p.h - 42, 7, 0, Math.PI * 2); ctx.fill();
+        text(item, x, p.y + p.h - 27, 11, activeColor, 800, 'center');
+      });
+    }
+    function drawLogin() {
+      const p = phoneFrame();
+      text('SalesTrack', p.x + 166, p.y + 80, 25, theme.primary, 900, 'center');
+      text('Masuk sebagai Salesforce', p.x + 166, p.y + 118, 14, theme.muted, 600, 'center');
+      field('USERNAME', 'sales.demo', p.x + 28, p.y + 170, 276, { bold: true });
+      field('PASSWORD SEMENTARA', 'DemoSales123', p.x + 28, p.y + 258, 276, { bold: true });
+      roundRect(p.x + 28, p.y + 360, 276, 52, 14, theme.primary, null);
+      text('Masuk', p.x + 166, p.y + 377, 17, '#fff', 900, 'center');
+      pill('Dari admin', p.x + 108, p.y + 430, '#fee2e2', theme.primary, 116);
+    }
+    function drawPassword() {
+      const p = phoneFrame();
+      appHeader(p, 'Ganti Password');
+      text('Password awal wajib diganti', p.x + 24, p.y + 86, 18, theme.text, 900);
+      multiline('Gunakan password baru yang hanya diketahui user.', p.x + 24, p.y + 116, 14, theme.muted, 280, 20, 500);
+      field('PASSWORD BARU', 'DemoBaru123', p.x + 24, p.y + 170, 284, { bold: true });
+      field('ULANGI PASSWORD', 'DemoBaru123', p.x + 24, p.y + 258, 284, { bold: true });
+      roundRect(p.x + 24, p.y + 380, 284, 52, 14, theme.primary, null);
+      text('Simpan Password', p.x + 166, p.y + 397, 16, '#fff', 900, 'center');
+    }
+    function drawDashboard() {
+      const p = phoneFrame();
+      appHeader(p, 'Dashboard');
+      card(p.x + 18, p.y + 80, 296, 96);
+      text('Halo, Salesforce Demo', p.x + 36, p.y + 102, 18, theme.text, 900);
+      text('TAP-DEMO', p.x + 36, p.y + 132, 14, theme.muted, 700);
+      pill('Aktif', p.x + 244, p.y + 104, '#dcfce7', theme.green, 54);
+      card(p.x + 18, p.y + 198, 138, 90);
+      text('0', p.x + 38, p.y + 218, 32, theme.text, 900);
+      text('Transaksi', p.x + 38, p.y + 258, 13, theme.muted, 700);
+      card(p.x + 176, p.y + 198, 138, 90);
+      text('Rp0', p.x + 196, p.y + 226, 25, theme.text, 900);
+      text('Omset', p.x + 196, p.y + 258, 13, theme.muted, 700);
+      roundRect(p.x + 18, p.y + 324, 296, 54, 14, theme.primary, null);
+      text('Input Penjualan', p.x + 166, p.y + 342, 16, '#fff', 900, 'center');
+      bottomNav(p, 'Dashboard');
+    }
+    function drawOutlet() {
+      const p = phoneFrame();
+      appHeader(p, 'Input Penjualan');
+      card(p.x + 18, p.y + 74, 296, 220);
+      pill('A', p.x + 34, p.y + 92, theme.primary, '#fff', 30);
+      text('Data Outlet', p.x + 74, p.y + 97, 16, theme.primary, 900);
+      field('ID OUTLET', 'OUT-DEMO-001 - Outlet Demo Bandung', p.x + 34, p.y + 132, 264, { bold: true });
+      field('NOMOR RS', 'RS-DEMO-001', p.x + 34, p.y + 220, 126, { disabled: true });
+      field('KABUPATEN', 'Bandung', p.x + 172, p.y + 220, 126, { disabled: true });
+      text('+ Tambah Outlet Baru', p.x + 34, p.y + 318, 13, theme.primary, 800);
+      bottomNav(p, 'Input');
+    }
+    function drawProducts() {
+      const p = phoneFrame();
+      appHeader(p, 'Input Penjualan');
+      card(p.x + 18, p.y + 74, 296, 360);
+      pill('B', p.x + 34, p.y + 92, theme.primary, '#fff', 30);
+      text('Produk', p.x + 74, p.y + 97, 16, theme.primary, 900);
+      field('NAMA PRODUK', 'DEMO-PERDANA-5K - Perdana 5K', p.x + 34, p.y + 132, 264, { bold: true });
+      text('Harga Satuan', p.x + 34, p.y + 222, 13, theme.muted, 700);
+      pill('Manual', p.x + 210, p.y + 215, '#fee2e2', theme.primary, 80);
+      roundRect(p.x + 34, p.y + 244, 126, 50, 12, '#fff', theme.line);
+      text('Rp 6.000', p.x + 50, p.y + 258, 18, theme.text, 900);
+      field('KUANTITI', '2', p.x + 172, p.y + 222, 126, { bold: true });
+      roundRect(p.x + 34, p.y + 320, 264, 62, 14, '#fff7ed', '#fed7aa');
+      text('Serial Number', p.x + 52, p.y + 334, 15, theme.accent, 900);
+      text('SN Awal: 1001   SN Akhir: 1002', p.x + 52, p.y + 360, 13, theme.muted, 700);
+      text('Subtotal', p.x + 34, p.y + 404, 13, theme.muted, 700);
+      text('Rp12.000', p.x + 298, p.y + 402, 18, theme.text, 900, 'right');
+      bottomNav(p, 'Input');
+    }
+    function drawOwner() {
+      const p = phoneFrame();
+      appHeader(p, 'Input Penjualan');
+      card(p.x + 18, p.y + 74, 296, 252);
+      pill('C', p.x + 34, p.y + 92, theme.primary, '#fff', 30);
+      text('Data Owner Outlet', p.x + 74, p.y + 97, 16, theme.primary, 900);
+      field('NOMOR WA OWNER', '081234567890', p.x + 34, p.y + 134, 264, { bold: true });
+      field('NAMA OWNER', 'Budi Santoso', p.x + 34, p.y + 222, 264, { bold: true });
+      card(p.x + 18, p.y + 350, 296, 104);
+      text('Grand Total', p.x + 34, p.y + 372, 18, theme.text, 900);
+      text('Rp12.000', p.x + 298, p.y + 368, 22, theme.primary, 900, 'right');
+      roundRect(p.x + 34, p.y + 410, 264, 36, 12, theme.primary, null);
+      text('SUBMIT TRANSAKSI', p.x + 166, p.y + 420, 14, '#fff', 900, 'center');
+      bottomNav(p, 'Input');
+    }
+    function drawConfirm() {
+      const p = phoneFrame();
+      appHeader(p, 'Konfirmasi');
+      card(p.x + 18, p.y + 76, 296, 90);
+      text('Outlet Demo Bandung', p.x + 34, p.y + 98, 17, theme.text, 900);
+      text('OUT-DEMO-001 - Coblong', p.x + 34, p.y + 126, 13, theme.muted, 700);
+      card(p.x + 18, p.y + 184, 296, 136);
+      text('Demo Perdana Telkomsel 5K', p.x + 34, p.y + 206, 15, theme.text, 900);
+      text('2x Rp6.000', p.x + 34, p.y + 232, 13, theme.muted, 700);
+      text('Rp12.000', p.x + 298, p.y + 222, 16, theme.text, 900, 'right');
+      roundRect(p.x + 18, p.y + 346, 296, 66, 16, '#fff1f2', '#fecdd3');
+      text('TOTAL', p.x + 36, p.y + 368, 16, theme.text, 900);
+      text('Rp12.000', p.x + 298, p.y + 362, 24, theme.primary, 900, 'right');
+      roundRect(p.x + 34, p.y + 442, 126, 46, 14, '#fff', theme.line);
+      text('Batal', p.x + 97, p.y + 456, 15, theme.muted, 900, 'center');
+      roundRect(p.x + 172, p.y + 442, 126, 46, 14, theme.primary, null);
+      text('Konfirmasi', p.x + 235, p.y + 456, 15, '#fff', 900, 'center');
+    }
+    function drawDone() {
+      const p = phoneFrame();
+      appHeader(p, 'Transaksi Tersimpan');
+      ctx.fillStyle = '#dcfce7';
+      ctx.beginPath(); ctx.arc(p.x + 166, p.y + 170, 54, 0, Math.PI * 2); ctx.fill();
+      text('OK', p.x + 166, p.y + 150, 28, theme.green, 900, 'center');
+      text('Transaksi berhasil disimpan!', p.x + 166, p.y + 246, 20, theme.text, 900, 'center');
+      multiline('Buka Laporan Penjualan untuk melihat transaksi yang sudah masuk.', p.x + 48, p.y + 286, 14, theme.muted, 250, 22, 600);
+      roundRect(p.x + 34, p.y + 384, 264, 52, 14, theme.primary, null);
+      text('Lihat Laporan', p.x + 166, p.y + 401, 16, '#fff', 900, 'center');
+      bottomNav(p, 'Laporan');
+    }
+    function drawTitle() {
+      roundRect(720, 144, 360, 360, 28, '#fff', '#e5e7eb');
+      text('SalesTrack', 900, 208, 36, theme.primary, 900, 'center');
+      text('Tutorial Salesforce', 900, 264, 24, theme.text, 900, 'center');
+      multiline('Gunakan akun demo untuk latihan input penjualan tanpa menyentuh data asli.', 780, 318, 17, theme.muted, 240, 26, 600);
+      pill('sales.demo', 800, 414, '#f1f5f9', theme.text, 124);
+      pill('DemoSales123', 936, 414, '#fee2e2', theme.primary, 124);
+    }
+    function getScene(t) {
+      return scenes.find((scene) => t >= scene.start && t < scene.end) || scenes[scenes.length - 1];
+    }
+    function render(t) {
+      drawFrameBase(t);
+      const scene = getScene(t);
+      if (!scene.screen) drawTitle();
+      if (scene.screen === 'login') drawLogin();
+      if (scene.screen === 'password') drawPassword();
+      if (scene.screen === 'dashboard') drawDashboard();
+      if (scene.screen === 'outlet') drawOutlet();
+      if (scene.screen === 'products') drawProducts();
+      if (scene.screen === 'owner') drawOwner();
+      if (scene.screen === 'confirm') drawConfirm();
+      if (scene.screen === 'done') drawDone();
+    }
+
+    let previewTimer = null;
+    function playPreview() {
+      if (previewTimer) cancelAnimationFrame(previewTimer);
+      const start = performance.now();
+      function tick(now) {
+        const t = ((now - start) / 1000) % DURATION;
+        render(t);
+        previewTimer = requestAnimationFrame(tick);
+      }
+      previewTimer = requestAnimationFrame(tick);
+      statusEl.textContent = 'Preview berjalan.';
+    }
+
+    async function exportWebm() {
+      if (!canvas.captureStream || !window.MediaRecorder) {
+        statusEl.textContent = 'Browser ini belum mendukung MediaRecorder. Buka dengan Chrome atau Edge terbaru.';
+        return;
+      }
+      playBtn.disabled = true;
+      recordBtn.disabled = true;
+      if (previewTimer) cancelAnimationFrame(previewTimer);
+
+      const stream = canvas.captureStream(FPS);
+      const chunks = [];
+      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+        ? 'video/webm;codecs=vp9'
+        : 'video/webm';
+      const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5000000 });
+      recorder.ondataavailable = (event) => { if (event.data.size > 0) chunks.push(event.data); };
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'tutorial-salesforce-salestrack.webm';
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        playBtn.disabled = false;
+        recordBtn.disabled = false;
+        statusEl.textContent = 'Export selesai. File WebM sudah didownload browser.';
+      };
+
+      recorder.start();
+      const totalFrames = DURATION * FPS;
+      for (let frame = 0; frame <= totalFrames; frame += 1) {
+        const t = frame / FPS;
+        render(t);
+        statusEl.textContent = `Merekam video... ${Math.round((frame / totalFrames) * 100)}%`;
+        await new Promise((resolve) => setTimeout(resolve, 1000 / FPS));
+      }
+      recorder.stop();
+    }
+
+    playBtn.addEventListener('click', playPreview);
+    recordBtn.addEventListener('click', exportWebm);
+    render(0);
+  </script>
+</body>
+</html>
