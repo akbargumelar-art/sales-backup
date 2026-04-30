@@ -8,6 +8,8 @@ import {
 } from '@/lib/app-data';
 import type { TransactionStatus } from '@/types';
 
+const getRoleLabel = (role: string) => role.replace('_', ' ');
+
 export default function ReportPage() {
   const {
     user,
@@ -42,15 +44,15 @@ export default function ReportPage() {
     return user ? getVisibleTransactions(user) : [];
   }, [user, transactions]);
 
-  const visibleSalesforces = useMemo(() => {
+  const visibleInputUsers = useMemo(() => {
     if (!isAdminOrAbove || !user) return [];
     return users.filter(u => {
-      if (u.role !== 'SALESFORCE') return false;
       if (selectedTap !== 'ALL') return u.tap === selectedTap;
       if (user.allowedTaps.includes('ALL')) return true;
       return user.allowedTaps.includes(u.tap);
     });
   }, [isAdminOrAbove, user, selectedTap, users]);
+  const visibleSalesforces = visibleInputUsers;
 
   const filtered = useMemo(() => {
     return allVisibleTrx.filter(trx => {
@@ -61,7 +63,11 @@ export default function ReportPage() {
       if (dateTo) { const t = new Date(dateTo); t.setHours(23,59,59,999); if (new Date(trx.submittedAt) > t) return false; }
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
-        return trx.nomorTransaksi.toLowerCase().includes(q) || trx.outlet.namaOutlet.toLowerCase().includes(q) || trx.salesforce.nama.toLowerCase().includes(q);
+        return trx.nomorTransaksi.toLowerCase().includes(q) ||
+          trx.outlet.namaOutlet.toLowerCase().includes(q) ||
+          trx.salesforce.nama.toLowerCase().includes(q) ||
+          trx.salesforce.username.toLowerCase().includes(q) ||
+          trx.salesforce.role.toLowerCase().includes(q);
       }
       return true;
     });
@@ -127,7 +133,7 @@ export default function ReportPage() {
       showToast('Tidak ada data untuk diexport', 'warning');
       return;
     }
-    const header = ['nomorTransaksi', 'tanggal', 'status', 'tap', 'outlet', 'ownerName', 'ownerPhone', 'salesforce', 'totalTagihan'];
+    const header = ['nomorTransaksi', 'tanggal', 'status', 'tap', 'outlet', 'ownerName', 'ownerPhone', 'inputUserNama', 'inputUserUsername', 'inputUserRole', 'totalTagihan'];
     const lines = filtered.map((trx) => [
       trx.nomorTransaksi,
       trx.submittedAt,
@@ -137,6 +143,8 @@ export default function ReportPage() {
       trx.ownerName,
       trx.ownerPhone,
       trx.salesforce.nama,
+      trx.salesforce.username,
+      trx.salesforce.role,
       String(trx.totalTagihan),
     ]);
     const csv = [header, ...lines]
@@ -201,15 +209,15 @@ export default function ReportPage() {
           )}
           {isAdminOrAbove && (
             <div>
-              <label className="form-label">Nama Salesforce</label>
+              <label className="form-label">User Input</label>
               <div className="relative">
                 <button onClick={() => setShowSfFilter(!showSfFilter)} className={`w-full input-field text-left flex items-center justify-between ${selectedSalesforce !== 'ALL' ? 'text-primary font-medium' : ''}`}>
-                  <span>{selectedSalesforce === 'ALL' ? 'Semua Salesforce' : users.find(u => u.id === selectedSalesforce)?.nama || 'Pilih'}</span>
+                  <span>{selectedSalesforce === 'ALL' ? 'Semua User Input' : users.find(u => u.id === selectedSalesforce)?.nama || 'Pilih'}</span>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>
                 </button>
                 {showSfFilter && (<><div className="fixed inset-0 z-30" onClick={() => setShowSfFilter(false)} />
                   <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-lg border border-border z-40 animate-scale-in overflow-hidden max-h-48 overflow-y-auto">
-                    <button onClick={() => { setSelectedSalesforce('ALL'); setShowSfFilter(false); }} className={`w-full text-left px-4 py-2.5 text-body hover:bg-surface transition-colors ${selectedSalesforce === 'ALL' ? 'bg-primary/5 text-primary font-medium' : 'text-text-primary'}`}>Semua Salesforce</button>
+                    <button onClick={() => { setSelectedSalesforce('ALL'); setShowSfFilter(false); }} className={`w-full text-left px-4 py-2.5 text-body hover:bg-surface transition-colors ${selectedSalesforce === 'ALL' ? 'bg-primary/5 text-primary font-medium' : 'text-text-primary'}`}>Semua User Input</button>
                     {visibleSalesforces.map(sf => (<button key={sf.id} onClick={() => { setSelectedSalesforce(sf.id); setShowSfFilter(false); }} className={`w-full text-left px-4 py-2.5 hover:bg-surface transition-colors border-t border-border/50 ${selectedSalesforce === sf.id ? 'bg-primary/5 text-primary font-medium' : 'text-text-primary'}`}><p className="text-body">{sf.nama}</p><p className="text-[10px] text-text-secondary">{sf.tap} • @{sf.username}</p></button>))}
                   </div></>)}
               </div>
@@ -226,7 +234,7 @@ export default function ReportPage() {
         {/* Search */}
         <div className="relative mb-3">
           <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-secondary/50" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Cari transaksi, outlet, atau salesforce..." className="input-field pl-10" />
+          <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Cari transaksi, outlet, atau user input..." className="input-field pl-10" />
         </div>
 
         {/* Status tabs */}
@@ -283,6 +291,10 @@ export default function ReportPage() {
                   <p className="text-caption text-text-secondary mt-0.5">{trx.nomorTransaksi}</p>
                   <div className="flex items-center gap-3 mt-1 flex-wrap">
                     <span className="text-caption text-text-secondary">{formatDateTime(trx.submittedAt)}</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${trx.salesforce.role === 'SALESFORCE' ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700'}`}>
+                      Input: {getRoleLabel(trx.salesforce.role)}
+                    </span>
+                    <span className="text-caption text-text-secondary">@{trx.salesforce.username}</span>
                     {isAdminOrAbove && <span className="text-caption text-text-secondary">• {trx.salesforce.nama}</span>}
                     <span className="text-caption text-text-secondary">{trx.items.length} produk</span>
                   </div>
