@@ -3,7 +3,7 @@
 import { ChangeEvent, useMemo, useState } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { formatCurrency } from '@/lib/app-data';
-import { downloadCsv, parseBoolean, parseCsv, parseNumber } from '@/lib/csv';
+import { downloadCsv, findDuplicateValues, getCsvValue, parseBoolean, parseCsv, parseNumber } from '@/lib/csv';
 import type { Product } from '@/types';
 
 type ProductFormState = {
@@ -42,12 +42,13 @@ type ProductImportRow = {
 
 const productCsvHeaders = ['kode', 'kategori', 'namaProduk', 'harga', 'isActive', 'isVirtualNominal', 'brand', 'adminFee', 'minNominal'];
 
-const normalizeProductCategory = (value: string | undefined): 'VIRTUAL' | 'FISIK' => (
-  String(value ?? '').trim().toUpperCase() === 'VIRTUAL' ? 'VIRTUAL' : 'FISIK'
-);
+const normalizeProductCategory = (value: string | undefined): 'VIRTUAL' | 'FISIK' => {
+  const normalized = String(value ?? '').trim().toUpperCase();
+  return ['VIRTUAL', 'DIGITAL', 'NONFISIK', 'NON FISIK'].includes(normalized) ? 'VIRTUAL' : 'FISIK';
+};
 
 const normalizeProductBrand = (value: string | undefined): 'LINKAJA' | 'FINPAY' | undefined => {
-  const normalized = String(value ?? '').trim().toUpperCase();
+  const normalized = String(value ?? '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '');
   return normalized === 'LINKAJA' || normalized === 'FINPAY' ? normalized : undefined;
 };
 
@@ -111,22 +112,27 @@ export default function ManageProductsPage() {
       return;
     }
     const parsed = rows.map((row) => {
-      const kategori = normalizeProductCategory(row.kategori);
-      const isVirtualNominal = kategori === 'VIRTUAL' ? parseBoolean(row.isVirtualNominal, true) : false;
+      const kategori = normalizeProductCategory(getCsvValue(row, ['kategori', 'category', 'jenis', 'tipe', 'type']));
+      const isVirtualNominal = kategori === 'VIRTUAL' ? parseBoolean(getCsvValue(row, ['isVirtualNominal', 'virtualNominal', 'nominalBebas', 'nominal bebas', 'inputNominal', 'input nominal']), true) : false;
       return {
-        kode: String(row.kode ?? '').trim().toUpperCase(),
+        kode: getCsvValue(row, ['kode', 'kodeProduk', 'kode produk', 'productCode', 'product code', 'sku']).trim().toUpperCase(),
         kategori,
-        namaProduk: String(row.namaProduk ?? '').trim(),
-        harga: kategori === 'FISIK' ? parseNumber(row.harga) : 0,
-        isActive: parseBoolean(row.isActive, true),
+        namaProduk: getCsvValue(row, ['namaProduk', 'nama produk', 'produk', 'productName', 'product name', 'nama']).trim(),
+        harga: kategori === 'FISIK' ? parseNumber(getCsvValue(row, ['harga', 'hargaSatuan', 'harga satuan', 'price'])) : 0,
+        isActive: parseBoolean(getCsvValue(row, ['isActive', 'is active', 'aktif', 'status', 'statusAktif', 'status aktif']), true),
         isVirtualNominal,
-        brand: normalizeProductBrand(row.brand),
-        adminFee: isVirtualNominal ? parseNumber(row.adminFee) : undefined,
-        minNominal: isVirtualNominal ? parseNumber(row.minNominal, 20000) : undefined,
+        brand: normalizeProductBrand(getCsvValue(row, ['brand', 'merek'])),
+        adminFee: isVirtualNominal ? parseNumber(getCsvValue(row, ['adminFee', 'admin fee', 'biayaAdmin', 'biaya admin']), 0) : undefined,
+        minNominal: isVirtualNominal ? parseNumber(getCsvValue(row, ['minNominal', 'min nominal', 'minimumNominal', 'minimum nominal', 'nominalMinimum', 'nominal minimum']), 20000) : undefined,
       };
     }).filter((row) => row.kode && row.namaProduk);
     if (parsed.length === 0) {
       showToast('Tidak ada data produk yang terbaca', 'error');
+      return;
+    }
+    const duplicateCodes = findDuplicateValues(parsed.map((row) => row.kode));
+    if (duplicateCodes.length > 0) {
+      showToast(`Kode produk duplikat di file: ${duplicateCodes.slice(0, 3).join(', ')}`, 'error');
       return;
     }
     setImportRows(parsed);

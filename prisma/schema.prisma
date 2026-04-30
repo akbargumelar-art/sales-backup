@@ -90,6 +90,7 @@ model Outlet {
   nomorRS      String
   namaOutlet   String
   tap          String
+  salesforceUsername String?
   kabupaten    String
   kecamatan    String
   isManual     Boolean       @default(true)
@@ -98,6 +99,7 @@ model Outlet {
   transactions Transaction[]
 
   @@index([tap])
+  @@index([salesforceUsername])
   @@map("outlets")
 }
 

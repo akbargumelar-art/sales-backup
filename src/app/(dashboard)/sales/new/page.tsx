@@ -434,6 +434,7 @@ export default function SalesNewPage() {
       {showAddOutlet && user && (
         <AddOutletModal
           userTap={user.tap}
+          username={user.username}
           onClose={() => setShowAddOutlet(false)}
           onSuccess={async (payload) => {
             const result = await addOutlet(payload);
@@ -663,13 +664,13 @@ function LineItemForm({ item, index, canRemove, virtualProducts, fisikProducts, 
 }
 
 /* ─── ADD OUTLET MODAL ────────────────────────────── */
-function AddOutletModal({ userTap, onClose, onSuccess }: { userTap: string; onClose: () => void; onSuccess: (outlet: Omit<Outlet, 'id' | 'createdAt'>) => void }) {
+function AddOutletModal({ userTap, username, onClose, onSuccess }: { userTap: string; username: string; onClose: () => void; onSuccess: (outlet: Omit<Outlet, 'id' | 'createdAt'>) => void }) {
   const [form, setForm] = useState({ idOutlet: '', nomorRS: '', namaOutlet: '', kabupaten: '', kecamatan: '' });
 
   const handleSave = () => {
     if (!form.idOutlet || !form.nomorRS || !form.namaOutlet || !form.kabupaten || !form.kecamatan) return;
     const newOutlet = {
-      ...form, tap: userTap, isManual: true,
+      ...form, tap: userTap, salesforceUsername: username, isManual: true,
     };
     onSuccess(newOutlet);
   };
@@ -680,7 +681,7 @@ function AddOutletModal({ userTap, onClose, onSuccess }: { userTap: string; onCl
         onClick={e => e.stopPropagation()}>
         <div className="w-10 h-1 rounded-full bg-border mx-auto mb-4 lg:hidden" />
         <h3 className="text-h2 text-text-primary mb-1">Tambah Outlet Baru</h3>
-        <p className="text-caption text-text-secondary mb-4">TAP: {userTap}</p>
+        <p className="text-caption text-text-secondary mb-4">TAP: {userTap} - Salesforce: @{username}</p>
         <div className="space-y-3">
           {(['idOutlet', 'nomorRS', 'namaOutlet', 'kabupaten', 'kecamatan'] as const).map(field => (
             <div key={field}>

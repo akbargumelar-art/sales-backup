@@ -40,7 +40,7 @@ export function getVisibleOutlets(user: User): Outlet[] {
   const { outlets } = useAppStore.getState();
   if (user.role === 'SUPER_ADMIN' || user.allowedTaps.includes('ALL')) return outlets;
   if (user.role === 'ADMIN') return outlets.filter((item) => user.allowedTaps.includes(item.tap));
-  return outlets.filter((item) => item.tap === user.tap);
+  return outlets.filter((item) => item.salesforceUsername?.toLowerCase() === user.username.toLowerCase());
 }
 
 export function getPendingCancelForSalesforce(user: User): Transaction[] {

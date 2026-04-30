@@ -62,6 +62,7 @@ export interface Outlet {
   nomorRS: string;
   namaOutlet: string;
   tap: string;
+  salesforceUsername?: string;
   kabupaten: string;
   kecamatan: string;
   isManual: boolean;

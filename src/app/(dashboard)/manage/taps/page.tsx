@@ -2,7 +2,7 @@
 
 import { ChangeEvent, useMemo, useState } from 'react';
 import { useAppStore } from '@/store/useAppStore';
-import { downloadCsv, parseBoolean, parseCsv } from '@/lib/csv';
+import { downloadCsv, findDuplicateValues, getCsvValue, parseBoolean, parseCsv } from '@/lib/csv';
 import type { Tap } from '@/types';
 
 type TapFormPayload = {
@@ -116,13 +116,18 @@ export default function ManageTapsPage() {
     }
 
     const parsed = rows.map((row) => ({
-      kode: normalizeTapCodeForImport(String(row.kode ?? '')),
-      nama: String(row.nama ?? '').trim(),
-      isActive: parseBoolean(row.isActive, true),
+      kode: normalizeTapCodeForImport(getCsvValue(row, ['kode', 'kodeTap', 'kode tap', 'tap', 'idTap', 'id tap'])),
+      nama: getCsvValue(row, ['nama', 'namaTap', 'nama tap', 'name']).trim(),
+      isActive: parseBoolean(getCsvValue(row, ['isActive', 'is active', 'aktif', 'status', 'statusAktif', 'status aktif']), true),
     })).filter((row) => row.kode && row.nama);
 
     if (parsed.length === 0) {
       showToast('Tidak ada data TAP yang terbaca', 'error');
+      return;
+    }
+    const duplicateCodes = findDuplicateValues(parsed.map((row) => row.kode));
+    if (duplicateCodes.length > 0) {
+      showToast(`Kode TAP duplikat di file: ${duplicateCodes.slice(0, 3).join(', ')}`, 'error');
       return;
     }
     setImportRows(parsed);

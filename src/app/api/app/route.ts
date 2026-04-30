@@ -31,6 +31,14 @@ const normalizeTapName = (value: unknown, kode: string) => {
   return name || kode.replace(/^TAP-/, '').replace(/-/g, ' ');
 };
 
+const normalizeUsername = (value: unknown) => String(value ?? '').trim().toLowerCase();
+
+const normalizeOutletSalesforceUsername = (value: unknown, currentUser: { role: string; username: string }) => {
+  if (currentUser.role === 'SALESFORCE') return currentUser.username;
+  const username = normalizeUsername(value);
+  return username || null;
+};
+
 function generatePassword() {
   const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
   return Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
@@ -77,16 +85,28 @@ export async function POST(request: Request) {
           return NextResponse.json({ message: 'Admin hanya bisa mengubah user Salesforce' }, { status: 403 });
         }
         const tap = String(payload.tap ?? '').trim();
-        await prisma.user.update({
-          where: { id: userId },
-          data: {
-            nama: String(payload.nama ?? '').trim(),
-            username: String(payload.username ?? '').trim().toLowerCase(),
-            role,
-            tap,
-            allowedTaps: role === 'SALESFORCE' ? [tap] : normalizeTaps(payload.allowedTaps, tap),
-            isActive: Boolean(payload.isActive),
-          },
+        const existingUser = await prisma.user.findUnique({ where: { id: userId } });
+        if (!existingUser) return NextResponse.json({ message: 'User tidak ditemukan' }, { status: 404 });
+        const username = normalizeUsername(payload.username);
+        await prisma.$transaction(async (tx) => {
+          await tx.user.update({
+            where: { id: userId },
+            data: {
+              nama: String(payload.nama ?? '').trim(),
+              username,
+              role,
+              tap,
+              allowedTaps: role === 'SALESFORCE' ? [tap] : normalizeTaps(payload.allowedTaps, tap),
+              isActive: Boolean(payload.isActive),
+            },
+          });
+
+          if (existingUser.username !== username) {
+            await tx.outlet.updateMany({
+              where: { salesforceUsername: existingUser.username },
+              data: { salesforceUsername: username },
+            });
+          }
         });
         break;
       }
@@ -200,12 +220,14 @@ export async function POST(request: Request) {
       }
       case 'addOutlet': {
         const tap = String(payload.tap ?? currentUser.tap).trim();
+        const salesforceUsername = normalizeOutletSalesforceUsername(payload.salesforceUsername, currentUser);
         await prisma.outlet.create({
           data: {
             idOutlet: String(payload.idOutlet ?? '').trim().toUpperCase(),
             nomorRS: String(payload.nomorRS ?? '').trim(),
             namaOutlet: String(payload.namaOutlet ?? '').trim(),
             tap,
+            salesforceUsername,
             kabupaten: String(payload.kabupaten ?? '').trim(),
             kecamatan: String(payload.kecamatan ?? '').trim(),
             isManual: Boolean(payload.isManual ?? true),
@@ -222,6 +244,7 @@ export async function POST(request: Request) {
             nomorRS: String(payload.nomorRS ?? '').trim(),
             namaOutlet: String(payload.namaOutlet ?? '').trim(),
             tap: String(payload.tap ?? '').trim(),
+            salesforceUsername: normalizeOutletSalesforceUsername(payload.salesforceUsername, currentUser),
             kabupaten: String(payload.kabupaten ?? '').trim(),
             kecamatan: String(payload.kecamatan ?? '').trim(),
             isManual: Boolean(payload.isManual ?? true),

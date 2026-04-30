@@ -3,7 +3,7 @@
 import { ChangeEvent, useMemo, useState } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { getViewableTaps } from '@/lib/app-data';
-import { downloadCsv, parseBoolean, parseCsv } from '@/lib/csv';
+import { downloadCsv, findDuplicateValues, getCsvValue, parseBoolean, parseCsv } from '@/lib/csv';
 import type { User } from '@/types';
 
 type UserImportRow = {
@@ -20,15 +20,16 @@ type UserImportRow = {
 const userCsvHeaders = ['nama', 'username', 'password', 'role', 'tap', 'allowedTaps', 'isActive', 'mustChangePassword'];
 
 const normalizeUserRole = (value: string | undefined): User['role'] => {
-  const normalized = String(value ?? '').trim().toUpperCase().replace(/\s+/g, '_');
+  const normalized = String(value ?? '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '');
   if (normalized === 'SUPER_ADMIN' || normalized === 'ADMIN' || normalized === 'SALESFORCE') return normalized;
+  if (['SF', 'SALES', 'SALES_FORCE', 'SALES_FORCE_USER'].includes(normalized)) return 'SALESFORCE';
   return 'SALESFORCE';
 };
 
 const parseAllowedTaps = (value: string | undefined, tap: string, role: User['role']) => {
   if (role === 'SALESFORCE') return [tap];
   const taps = String(value ?? '')
-    .split(/[;|]/)
+    .split(/[;,|]/)
     .map((item) => item.trim().toUpperCase())
     .filter(Boolean);
   if (taps.includes('ALL')) return ['ALL'];
@@ -168,22 +169,27 @@ export default function ManageSalesforcePage() {
     }
 
     const parsed = rows.map((row) => {
-      const role = normalizeUserRole(row.role);
-      const tap = String(row.tap ?? currentUser?.tap ?? '').trim();
+      const role = normalizeUserRole(getCsvValue(row, ['role', 'jabatan', 'tipeUser', 'tipe user', 'hakAkses', 'hak akses']));
+      const tap = getCsvValue(row, ['tap', 'homeTap', 'home tap', 'kodeTap', 'kode tap'], currentUser?.tap ?? '').trim();
       return {
-        nama: String(row.nama ?? '').trim(),
-        username: String(row.username ?? '').trim().toLowerCase(),
-        password: String(row.password ?? '').trim(),
+        nama: getCsvValue(row, ['nama', 'namaLengkap', 'nama lengkap', 'name', 'fullName', 'full name']).trim(),
+        username: getCsvValue(row, ['username', 'userName', 'user name', 'login', 'idLogin', 'id login']).trim().toLowerCase(),
+        password: getCsvValue(row, ['password', 'passwordSementara', 'password sementara', 'pass']).trim(),
         role,
         tap,
-        allowedTaps: parseAllowedTaps(row.allowedTaps, tap, role),
-        isActive: parseBoolean(row.isActive, true),
-        mustChangePassword: parseBoolean(row.mustChangePassword, true),
+        allowedTaps: parseAllowedTaps(getCsvValue(row, ['allowedTaps', 'allowed taps', 'aksesTap', 'akses tap', 'tapAkses', 'tap akses']), tap, role),
+        isActive: parseBoolean(getCsvValue(row, ['isActive', 'is active', 'aktif', 'status', 'statusAktif', 'status aktif']), true),
+        mustChangePassword: parseBoolean(getCsvValue(row, ['mustChangePassword', 'must change password', 'wajibGantiPassword', 'wajib ganti password', 'gantiPassword', 'ganti password']), true),
       };
     }).filter((row) => row.nama && row.username && row.tap);
 
     if (parsed.length === 0) {
       showToast('Tidak ada data user yang terbaca', 'error');
+      return;
+    }
+    const duplicateUsernames = findDuplicateValues(parsed.map((row) => row.username));
+    if (duplicateUsernames.length > 0) {
+      showToast(`Username duplikat di file: ${duplicateUsernames.slice(0, 3).join(', ')}`, 'error');
       return;
     }
     setImportRows(parsed);

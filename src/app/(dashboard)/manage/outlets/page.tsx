@@ -3,7 +3,7 @@
 import { ChangeEvent, useMemo, useState } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { getVisibleOutlets, getViewableTaps } from '@/lib/app-data';
-import { downloadCsv, parseBoolean, parseCsv } from '@/lib/csv';
+import { downloadCsv, findDuplicateValues, getCsvValue, parseBoolean, parseCsv } from '@/lib/csv';
 import type { Outlet } from '@/types';
 
 type OutletImportRow = {
@@ -11,15 +11,16 @@ type OutletImportRow = {
   nomorRS: string;
   namaOutlet: string;
   tap: string;
+  salesforceUsername: string;
   kabupaten: string;
   kecamatan: string;
   isManual: boolean;
 };
 
-const outletCsvHeaders = ['idOutlet', 'nomorRS', 'namaOutlet', 'tap', 'kabupaten', 'kecamatan', 'isManual'];
+const outletCsvHeaders = ['idOutlet', 'nomorRS', 'namaOutlet', 'tap', 'salesforceUsername', 'kabupaten', 'kecamatan', 'isManual'];
 
 export default function ManageOutletsPage() {
-  const { user, outlets, showToast, addOutlet, updateOutlet } = useAppStore();
+  const { user, users, outlets, showToast, addOutlet, updateOutlet } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [filterTap, setFilterTap] = useState<string>('ALL');
   const [editingOutlet, setEditingOutlet] = useState<Outlet | null>(null);
@@ -29,6 +30,10 @@ export default function ManageOutletsPage() {
 
   const isAdminOrAbove = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
   const viewableTaps = useMemo(() => user ? getViewableTaps(user) : [], [user]);
+  const salesforceOptions = useMemo(() => users
+    .filter((item) => item.role === 'SALESFORCE')
+    .filter((item) => user?.role === 'SUPER_ADMIN' || user?.allowedTaps.includes('ALL') || user?.allowedTaps.includes(item.tap))
+    .sort((a, b) => a.nama.localeCompare(b.nama)), [user, users]);
   const allOutlets = useMemo(() => {
     void outlets;
     return user ? getVisibleOutlets(user) : [];
@@ -39,7 +44,7 @@ export default function ManageOutletsPage() {
       if (filterTap !== 'ALL' && o.tap !== filterTap) return false;
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
-        return o.idOutlet.toLowerCase().includes(q) || o.namaOutlet.toLowerCase().includes(q) || o.kabupaten.toLowerCase().includes(q) || o.kecamatan.toLowerCase().includes(q);
+        return o.idOutlet.toLowerCase().includes(q) || o.namaOutlet.toLowerCase().includes(q) || o.salesforceUsername?.toLowerCase().includes(q) || o.kabupaten.toLowerCase().includes(q) || o.kecamatan.toLowerCase().includes(q);
       }
       return true;
     });
@@ -64,6 +69,7 @@ export default function ManageOutletsPage() {
         outlet.nomorRS,
         outlet.namaOutlet,
         outlet.tap,
+        outlet.salesforceUsername ?? '',
         outlet.kabupaten,
         outlet.kecamatan,
         outlet.isManual,
@@ -74,8 +80,9 @@ export default function ManageOutletsPage() {
 
   const handleDownloadTemplate = () => {
     const sampleTap = viewableTaps[0] ?? user?.tap ?? 'TAP-CONTOH';
+    const sampleSalesforce = salesforceOptions[0]?.username ?? 'username.salesforce';
     downloadCsv('template-outlet.csv', outletCsvHeaders, [
-      ['OUT-001', 'RS-001', 'Outlet Contoh', sampleTap, 'Bandung', 'Coblong', true],
+      ['OUT-001', 'RS-001', 'Outlet Contoh', sampleTap, sampleSalesforce, 'Bandung', 'Coblong', true],
     ]);
   };
 
@@ -91,17 +98,31 @@ export default function ManageOutletsPage() {
     }
 
     const parsed = rows.map((row) => ({
-      idOutlet: String(row.idOutlet ?? '').trim().toUpperCase(),
-      nomorRS: String(row.nomorRS ?? '').trim(),
-      namaOutlet: String(row.namaOutlet ?? '').trim(),
-      tap: String(row.tap ?? user?.tap ?? '').trim(),
-      kabupaten: String(row.kabupaten ?? '').trim(),
-      kecamatan: String(row.kecamatan ?? '').trim(),
-      isManual: parseBoolean(row.isManual, true),
+      idOutlet: getCsvValue(row, ['idOutlet', 'id outlet', 'kodeOutlet', 'kode outlet', 'outletId', 'outlet id']).trim().toUpperCase(),
+      nomorRS: getCsvValue(row, ['nomorRS', 'nomor rs', 'noRS', 'no rs', 'rs', 'kodeRS', 'kode rs']).trim(),
+      namaOutlet: getCsvValue(row, ['namaOutlet', 'nama outlet', 'outlet', 'nama']).trim(),
+      tap: getCsvValue(row, ['tap', 'kodeTap', 'kode tap', 'homeTap', 'home tap'], user?.tap ?? '').trim(),
+      salesforceUsername: getCsvValue(row, ['salesforceUsername', 'salesforce username', 'usernameSalesforce', 'username salesforce', 'salesUsername', 'sales username', 'sfUsername', 'sf username', 'usernameSF', 'username sf']).trim().toLowerCase(),
+      kabupaten: getCsvValue(row, ['kabupaten', 'kabupatenKota', 'kabupaten kota', 'kota', 'city']).trim(),
+      kecamatan: getCsvValue(row, ['kecamatan', 'district']).trim(),
+      isManual: parseBoolean(getCsvValue(row, ['isManual', 'is manual', 'manual', 'inputManual', 'input manual']), true),
     })).filter((row) => row.idOutlet && row.nomorRS && row.namaOutlet && row.tap && row.kabupaten && row.kecamatan);
 
     if (parsed.length === 0) {
       showToast('Tidak ada data outlet yang terbaca', 'error');
+      return;
+    }
+    const duplicateIds = findDuplicateValues(parsed.map((row) => row.idOutlet));
+    if (duplicateIds.length > 0) {
+      showToast(`ID Outlet duplikat di file: ${duplicateIds.slice(0, 3).join(', ')}`, 'error');
+      return;
+    }
+    const validSalesforceUsernames = new Set(users.filter((item) => item.role === 'SALESFORCE').map((item) => item.username.toLowerCase()));
+    const unknownSalesforces = Array.from(new Set(parsed
+      .map((row) => row.salesforceUsername)
+      .filter((username) => username && !validSalesforceUsernames.has(username))));
+    if (unknownSalesforces.length > 0) {
+      showToast(`Username Salesforce tidak ditemukan: ${unknownSalesforces.slice(0, 3).join(', ')}`, 'error');
       return;
     }
     setImportRows(parsed);
@@ -117,6 +138,7 @@ export default function ManageOutletsPage() {
         nomorRS: row.nomorRS,
         namaOutlet: row.namaOutlet,
         tap: row.tap,
+        salesforceUsername: row.salesforceUsername,
         kabupaten: row.kabupaten,
         kecamatan: row.kecamatan,
         isManual: row.isManual,
@@ -209,6 +231,7 @@ export default function ManageOutletsPage() {
                     </div>
                     <p className="text-caption text-text-secondary mt-0.5">{outlet.idOutlet} • RS: {outlet.nomorRS}</p>
                     <div className="flex items-center gap-3 mt-1 flex-wrap">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-50 text-green-700">{outlet.salesforceUsername ? `@${outlet.salesforceUsername}` : 'Belum assign SF'}</span>
                       <span className="text-[10px] text-text-secondary flex items-center gap-1">
                         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
                         {outlet.kabupaten}, {outlet.kecamatan}
@@ -231,6 +254,8 @@ export default function ManageOutletsPage() {
           outlet={editingOutlet}
           taps={user.role === 'SALESFORCE' ? [user.tap] : viewableTaps}
           defaultTap={editingOutlet?.tap ?? user.tap}
+          salesforces={isAdminOrAbove ? salesforceOptions : []}
+          currentUsername={user.username}
           onClose={() => setShowModal(false)}
           onSave={async (payload) => {
             const result = editingOutlet
@@ -257,6 +282,7 @@ export default function ManageOutletsPage() {
                 <div key={`${row.idOutlet}-${index}`} className="rounded-xl border border-border p-3">
                   <p className="text-body font-semibold text-text-primary">{row.namaOutlet}</p>
                   <p className="text-caption text-text-secondary">{row.idOutlet} - {row.nomorRS} - {row.tap}</p>
+                  <p className="text-caption text-text-secondary">Salesforce: {row.salesforceUsername ? `@${row.salesforceUsername}` : 'Belum diisi'}</p>
                   <p className="text-caption text-text-secondary">{row.kabupaten}, {row.kecamatan}</p>
                 </div>
               ))}
@@ -276,18 +302,23 @@ function OutletModal({
   outlet,
   taps,
   defaultTap,
+  salesforces,
+  currentUsername,
   onClose,
   onSave,
 }: {
   outlet: Outlet | null;
   taps: string[];
   defaultTap: string;
+  salesforces: Array<{ username: string; nama: string; tap: string }>;
+  currentUsername: string;
   onClose: () => void;
   onSave: (payload: {
     idOutlet: string;
     nomorRS: string;
     namaOutlet: string;
     tap: string;
+    salesforceUsername?: string;
     kabupaten: string;
     kecamatan: string;
     isManual: boolean;
@@ -298,10 +329,12 @@ function OutletModal({
     nomorRS: outlet?.nomorRS ?? '',
     namaOutlet: outlet?.namaOutlet ?? '',
     tap: outlet?.tap ?? defaultTap,
+    salesforceUsername: outlet?.salesforceUsername ?? '',
     kabupaten: outlet?.kabupaten ?? '',
     kecamatan: outlet?.kecamatan ?? '',
     isManual: outlet?.isManual ?? true,
   });
+  const assignableSalesforces = salesforces.filter((salesforce) => salesforce.tap === form.tap || salesforce.username === form.salesforceUsername);
 
   return (
     <div className="overlay" onClick={onClose}>
@@ -333,9 +366,32 @@ function OutletModal({
           </div>
           <div>
             <label className="form-label">TAP</label>
-            <select value={form.tap} onChange={(e) => setForm((prev) => ({ ...prev, tap: e.target.value }))} className="input-field">
+            <select value={form.tap} onChange={(e) => setForm((prev) => {
+              const nextTap = e.target.value;
+              const selectedSalesforce = salesforces.find((salesforce) => salesforce.username === prev.salesforceUsername);
+              return {
+                ...prev,
+                tap: nextTap,
+                salesforceUsername: selectedSalesforce && selectedSalesforce.tap !== nextTap ? '' : prev.salesforceUsername,
+              };
+            })} className="input-field">
               {taps.map((tap) => <option key={tap} value={tap}>{tap}</option>)}
             </select>
+          </div>
+          <div>
+            <label className="form-label">Username Salesforce</label>
+            {salesforces.length > 0 ? (
+              <select value={form.salesforceUsername} onChange={(e) => setForm((prev) => ({ ...prev, salesforceUsername: e.target.value }))} className="input-field">
+                <option value="">Belum diassign</option>
+                {assignableSalesforces.map((salesforce) => (
+                  <option key={salesforce.username} value={salesforce.username}>
+                    {salesforce.nama} (@{salesforce.username}) - {salesforce.tap}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input type="text" value={form.salesforceUsername || currentUsername} readOnly className="input-disabled" />
+            )}
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3 mt-5">
