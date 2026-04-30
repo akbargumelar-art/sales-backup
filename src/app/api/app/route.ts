@@ -39,6 +39,17 @@ const normalizeOutletSalesforceUsername = (value: unknown, currentUser: { role: 
   return username || null;
 };
 
+const normalizeOutletPayload = (payload: any, currentUser: { role: string; username: string; tap: string }) => ({
+  idOutlet: String(payload.idOutlet ?? '').trim().toUpperCase(),
+  nomorRS: String(payload.nomorRS ?? '').trim(),
+  namaOutlet: String(payload.namaOutlet ?? '').trim(),
+  tap: String(payload.tap ?? currentUser.tap).trim(),
+  salesforceUsername: normalizeOutletSalesforceUsername(payload.salesforceUsername, currentUser),
+  kabupaten: String(payload.kabupaten ?? '').trim(),
+  kecamatan: String(payload.kecamatan ?? '').trim(),
+  isManual: Boolean(payload.isManual ?? true),
+});
+
 function generatePassword() {
   const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
   return Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
@@ -53,6 +64,7 @@ export async function POST(request: Request) {
   const body = await request.json();
   const action = String(body.action ?? '');
   const payload = body.payload ?? {};
+  let responseOutletId: string | null = null;
 
   try {
     switch (action) {
@@ -219,37 +231,54 @@ export async function POST(request: Request) {
         break;
       }
       case 'addOutlet': {
-        const tap = String(payload.tap ?? currentUser.tap).trim();
-        const salesforceUsername = normalizeOutletSalesforceUsername(payload.salesforceUsername, currentUser);
-        await prisma.outlet.create({
-          data: {
-            idOutlet: String(payload.idOutlet ?? '').trim().toUpperCase(),
-            nomorRS: String(payload.nomorRS ?? '').trim(),
-            namaOutlet: String(payload.namaOutlet ?? '').trim(),
-            tap,
-            salesforceUsername,
-            kabupaten: String(payload.kabupaten ?? '').trim(),
-            kecamatan: String(payload.kecamatan ?? '').trim(),
-            isManual: Boolean(payload.isManual ?? true),
-          },
+        const data = normalizeOutletPayload(payload, currentUser);
+        if (!data.idOutlet || !data.nomorRS || !data.namaOutlet || !data.tap || !data.kabupaten || !data.kecamatan) {
+          return NextResponse.json({ message: 'Data outlet belum lengkap' }, { status: 400 });
+        }
+
+        const existingOutlet = await prisma.outlet.findUnique({ where: { idOutlet: data.idOutlet } });
+        if (
+          existingOutlet &&
+          currentUser.role === 'SALESFORCE' &&
+          existingOutlet.salesforceUsername &&
+          existingOutlet.salesforceUsername.toLowerCase() !== currentUser.username.toLowerCase()
+        ) {
+          return NextResponse.json({ message: 'ID Outlet sudah terdaftar untuk user lain. Pilih outlet dari daftar atau hubungi admin.' }, { status: 409 });
+        }
+
+        const outlet = await prisma.outlet.upsert({
+          where: { idOutlet: data.idOutlet },
+          update: data,
+          create: data,
         });
+        responseOutletId = outlet.id;
         break;
       }
       case 'updateOutlet': {
         if (!requireAdmin(currentUser.role)) return NextResponse.json({ message: 'Akses ditolak' }, { status: 403 });
-        await prisma.outlet.update({
-          where: { id: String(payload.outletId ?? '') },
-          data: {
-            idOutlet: String(payload.idOutlet ?? '').trim().toUpperCase(),
-            nomorRS: String(payload.nomorRS ?? '').trim(),
-            namaOutlet: String(payload.namaOutlet ?? '').trim(),
-            tap: String(payload.tap ?? '').trim(),
-            salesforceUsername: normalizeOutletSalesforceUsername(payload.salesforceUsername, currentUser),
-            kabupaten: String(payload.kabupaten ?? '').trim(),
-            kecamatan: String(payload.kecamatan ?? '').trim(),
-            isManual: Boolean(payload.isManual ?? true),
-          },
+        const outletId = String(payload.outletId ?? '');
+        const data = normalizeOutletPayload(payload, currentUser);
+        if (!data.idOutlet || !data.nomorRS || !data.namaOutlet || !data.tap || !data.kabupaten || !data.kecamatan) {
+          return NextResponse.json({ message: 'Data outlet belum lengkap' }, { status: 400 });
+        }
+
+        const [outletById, outletByIdOutlet] = await Promise.all([
+          outletId ? prisma.outlet.findUnique({ where: { id: outletId } }) : null,
+          prisma.outlet.findUnique({ where: { idOutlet: data.idOutlet } }),
+        ]);
+
+        if (outletById && outletByIdOutlet && outletById.id !== outletByIdOutlet.id) {
+          return NextResponse.json({ message: 'ID Outlet sudah dipakai outlet lain' }, { status: 409 });
+        }
+
+        const targetOutlet = outletById ?? outletByIdOutlet;
+        if (!targetOutlet) return NextResponse.json({ message: 'Outlet tidak ditemukan' }, { status: 404 });
+
+        const outlet = await prisma.outlet.update({
+          where: { id: targetOutlet.id },
+          data,
         });
+        responseOutletId = outlet.id;
         break;
       }
       case 'submitTransaction': {
@@ -393,10 +422,14 @@ export async function POST(request: Request) {
     }
 
     const refreshedUser = await prisma.user.findUnique({ where: { id: currentUser.id } });
-    return NextResponse.json(await getBootstrapData(refreshedUser));
+    const bootstrap = await getBootstrapData(refreshedUser);
+    return NextResponse.json({
+      ...bootstrap,
+      ...(responseOutletId ? { outlet: bootstrap.outlets.find((outlet) => outlet.id === responseOutletId) } : {}),
+    });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      return NextResponse.json({ message: 'Data dengan kode atau username tersebut sudah ada' }, { status: 409 });
+      return NextResponse.json({ message: 'Data dengan kode, username, atau ID Outlet tersebut sudah ada' }, { status: 409 });
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
       return NextResponse.json({ message: 'Data referensi tidak ditemukan. Muat ulang halaman lalu coba lagi.' }, { status: 409 });
