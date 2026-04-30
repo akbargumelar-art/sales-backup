@@ -19,7 +19,6 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  renameSync,
   unlinkSync,
   writeFileSync,
   readdirSync,
@@ -105,6 +104,7 @@ const dumpArgs = [
   '--quick',
   '--routines',
   '--triggers',
+  '--skip-dump-date',  // Omit "Dump completed on" timestamp for deterministic hash comparison
 ];
 
 // Only add --set-gtid-purged=OFF if server supports it (skip for basic setups)
@@ -140,14 +140,12 @@ if (!dumpData || dumpData.length === 0) {
 
 console.log(`✅ Dump complete (${(dumpData.length / 1024).toFixed(1)} KB raw)`);
 
-// ─── Gzip ────────────────────────────────────────────────────────────────────
+// ─── Hash comparison (on RAW dump, before gzip) ─────────────────────────────
+// NOTE: We hash the raw SQL dump, NOT the gzipped output. gzipSync embeds a
+// timestamp in the gzip header, making it non-deterministic even with identical
+// input data. Hashing the raw dump ensures consistent change detection.
 
-const gzipped = gzipSync(dumpData, { level: 9 });
-console.log(`📦 Compressed to ${(gzipped.length / 1024).toFixed(1)} KB`);
-
-// ─── Hash comparison ─────────────────────────────────────────────────────────
-
-const currentHash = createHash('sha256').update(gzipped).digest('hex');
+const currentHash = createHash('sha256').update(dumpData).digest('hex');
 const hashFile = path.join(BACKUP_DIR, '.latest.sha256');
 
 if (existsSync(hashFile)) {
@@ -157,6 +155,11 @@ if (existsSync(hashFile)) {
     process.exit(0);
   }
 }
+
+// ─── Gzip (only after confirming data has changed) ───────────────────────────
+
+const gzipped = gzipSync(dumpData, { level: 9 });
+console.log(`📦 Compressed to ${(gzipped.length / 1024).toFixed(1)} KB`);
 
 // ─── Save backup ─────────────────────────────────────────────────────────────
 
