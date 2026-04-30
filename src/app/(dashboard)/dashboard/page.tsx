@@ -188,8 +188,8 @@ export default function DashboardPage() {
   const [showSfFilter, setShowSfFilter] = useState(false);
   const [openSummaryTables, setOpenSummaryTables] = useState({
     tap: true,
-    salesforce: true,
-    product: true,
+    salesforce: false,
+    product: false,
   });
 
   const isAdminOrAbove = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';

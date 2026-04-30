@@ -61,7 +61,12 @@ Aplikasi juga sudah dilengkapi manajemen data CSV, replace data double saat uplo
 - Data yang ikut ter-download di laporan transaksi mencakup data submit utama: tanggal, status, TAP, outlet, ID outlet, owner, WA owner, Salesforce/input user, produk, kode produk, nomor seri/serial, kuantiti, harga jual, subtotal, dan total tagihan
 - Dashboard admin memiliki tabel summary full-width yang bisa collapse/expand dengan urutan `Per TAP`, `Per Salesforce`, lalu `Per Produk`
 - Summary admin `Per TAP` menampilkan jumlah transaksi, outlet unik, Salesforce unik, qty, omset, dan baris `Total 1 Cluster`
-- Summary admin `Per Salesforce` dan `Per Produk` tetap bisa dibuka/tutup dalam tampilan full-width
+- Summary admin `Per Salesforce` memiliki kolom TAP terpisah setelah nama Salesforce
+- Semua kolom tabel summary admin bisa diurutkan naik/turun, baik teks A-Z/Z-A maupun angka 0-9/9-0
+- Default dashboard admin hanya membuka tabel `Per TAP`; tabel `Per Salesforce` dan `Per Produk` collapse sampai dibuka user
+- Kartu transaksi di halaman laporan bisa diklik untuk membuka detail transaksi, sementara tombol aksi pembatalan tetap berjalan sendiri
+- Tombol scroll-to-top tersedia di layout dashboard untuk halaman yang panjang
+- Dropdown pencarian outlet di input penjualan bisa ditutup saat hasil outlet kosong melalui klik luar, tombol Escape, atau klik pesan kosong
 - Saat proses upload/import dikonfirmasi, aplikasi menampilkan loading overlay full-screen dan mengunci halaman sampai upload selesai
 - Loading lock upload juga menjaga tombol back browser dan memberi peringatan jika user mencoba reload/close tab saat upload berjalan
 
@@ -90,7 +95,7 @@ Aplikasi juga sudah dilengkapi manajemen data CSV, replace data double saat uplo
 - Alur update VPS tetap menjaga file `.env` dan konfigurasi server lokal karena update dilakukan dari Git tanpa menimpa file environment
 - Aplikasi production sudah live di domain `sales.abkciraya.cloud`
 - Update dari GitHub ke VPS dilakukan lewat `bash deploy.sh`, tanpa reset database dan tanpa seed ulang data production
-- Perubahan terakhir sampai commit `bc3d7c0` sudah dipush ke branch `main`
+- Perubahan terbaru dipush ke branch `main` untuk diambil VPS melalui deploy aman
 
 ---
 
@@ -98,7 +103,7 @@ Aplikasi juga sudah dilengkapi manajemen data CSV, replace data double saat uplo
 
 - `npx tsc --noEmit` sukses setelah perubahan terbaru
 - `npm run lint` sukses setelah perubahan terbaru
-- `npm run build` sukses setelah perubahan terbaru sampai commit `bc3d7c0`
+- `npm run build` sukses setelah perubahan terbaru
 - Dev server lokal berhasil dijalankan di `http://localhost:3001`
 
 ---
