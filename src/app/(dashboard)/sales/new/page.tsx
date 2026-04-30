@@ -27,8 +27,14 @@ function genId() { return Math.random().toString(36).slice(2, 10); }
 
 const emptyItem = (): SalesLineItem => ({
   id: genId(), productId: '', hargaSatuan: 0, kuantiti: 1, subTotal: 0,
-  snMode: 'none', snAwal: '', snAkhir: '', scannedSNs: [], isManualPrice: false,
+  snMode: 'none', snAwal: '', snAkhir: '', scannedSNs: [], isManualPrice: false, priceChangeReason: '',
 });
+
+const requiresPriceChangeReason = (item: SalesLineItem) => Boolean(
+  item.product &&
+  !item.product.isVirtualNominal &&
+  (item.isManualPrice || item.hargaSatuan !== item.product.harga)
+);
 
 export default function SalesNewPage() {
   const { user, products, outlets, showToast, addOutlet, submitTransaction } = useAppStore();
@@ -155,6 +161,7 @@ export default function SalesNewPage() {
         snMode: 'none',
         nominalVirtual: 0,
         isManualPrice: false,
+        priceChangeReason: '',
       });
     } else {
       updateItem(itemId, {
@@ -166,6 +173,7 @@ export default function SalesNewPage() {
         snMode: product.kategori === 'FISIK' ? 'range' : 'none',
         nominalVirtual: undefined,
         isManualPrice: false,
+        priceChangeReason: '',
       });
     }
   };
@@ -210,6 +218,14 @@ export default function SalesNewPage() {
       setSelectedOutlet(latestOutlet);
     }
 
+    const missingPriceReason = items.find((item) => requiresPriceChangeReason(item) && !item.priceChangeReason?.trim());
+    if (missingPriceReason) {
+      setIsSubmitting(false);
+      setShowConfirm(false);
+      showToast(`Alasan rubah harga wajib diisi untuk ${missingPriceReason.product?.namaProduk ?? 'produk'}.`, 'error');
+      return;
+    }
+
     const result = user ? await submitTransaction({
       outletId: latestOutlet.id,
       idOutlet: latestOutlet.idOutlet,
@@ -238,7 +254,8 @@ export default function SalesNewPage() {
     items.every(i => {
       if (!i.productId) return false;
       if (i.product?.isVirtualNominal) return (i.nominalVirtual ?? 0) >= (i.product.minNominal ?? 20000);
-      return i.kuantiti >= 1;
+      if (requiresPriceChangeReason(i) && !i.priceChangeReason?.trim()) return false;
+      return i.kuantiti >= 1 && i.hargaSatuan > 0;
     }) &&
     grandTotal > 0 && isWaValid && isNamaValid;
 
@@ -460,6 +477,14 @@ export default function SalesNewPage() {
                   <div>
                     <p className="text-body font-medium text-text-primary">{item.product?.namaProduk}</p>
                     <p className="text-caption text-text-secondary">{item.kuantiti}x {formatCurrency(item.hargaSatuan)}</p>
+                    {requiresPriceChangeReason(item) && (
+                      <>
+                        <p className="text-[10px] text-amber-700">
+                          Rubah harga: {formatCurrency(item.product?.harga ?? 0)} ke {formatCurrency(item.hargaSatuan)}
+                        </p>
+                        <p className="text-[10px] text-text-secondary">Alasan: {item.priceChangeReason}</p>
+                      </>
+                    )}
                   </div>
                   <p className="text-body font-semibold text-text-primary">{formatCurrency(item.subTotal)}</p>
                 </div>
@@ -536,7 +561,7 @@ function LineItemForm({ item, index, canRemove, virtualProducts, fisikProducts, 
         <input
           type="text"
           value={item.product ? `${item.product.kode} — ${item.product.namaProduk}` : search}
-          onChange={e => { setSearch(e.target.value); onUpdate({ productId: '', product: undefined, hargaSatuan: 0, subTotal: 0, nominalVirtual: undefined, isManualPrice: false }); setDropdownOpen(true); }}
+          onChange={e => { setSearch(e.target.value); onUpdate({ productId: '', product: undefined, hargaSatuan: 0, subTotal: 0, nominalVirtual: undefined, isManualPrice: false, priceChangeReason: '' }); setDropdownOpen(true); }}
           onFocus={() => setDropdownOpen(true)}
           placeholder="Cari produk..."
           className="input-field"
@@ -639,7 +664,12 @@ function LineItemForm({ item, index, canRemove, virtualProducts, fisikProducts, 
                     onChange={(e) => {
                       const defaultPrice = item.product?.harga ?? 0;
                       const nextPrice = e.target.checked ? item.hargaSatuan : defaultPrice;
-                      onUpdate({ isManualPrice: e.target.checked, hargaSatuan: nextPrice, subTotal: nextPrice * item.kuantiti });
+                      onUpdate({
+                        isManualPrice: e.target.checked,
+                        hargaSatuan: nextPrice,
+                        subTotal: nextPrice * item.kuantiti,
+                        priceChangeReason: e.target.checked ? item.priceChangeReason ?? '' : '',
+                      });
                     }}
                     className="w-3.5 h-3.5 rounded accent-primary"
                   />
@@ -671,6 +701,26 @@ function LineItemForm({ item, index, canRemove, virtualProducts, fisikProducts, 
             <input type="number" min={1} value={item.kuantiti}
               onChange={e => { const q = Math.max(1, parseInt(e.target.value) || 1); onUpdate({ kuantiti: q, subTotal: item.hargaSatuan * q }); }}
               className="input-field text-center font-semibold" />
+          </div>
+        </div>
+      )}
+
+      {!item.product?.isVirtualNominal && item.product && item.isManualPrice && (
+        <div className="mb-3 p-3 rounded-xl bg-amber-50/60 border border-amber-100">
+          <label className="form-label">Alasan Rubah Harga <span className="text-error">*</span></label>
+          <textarea
+            value={item.priceChangeReason ?? ''}
+            onChange={(e) => onUpdate({ priceChangeReason: e.target.value })}
+            rows={2}
+            maxLength={300}
+            placeholder="Contoh: harga promo outlet, koreksi harga, atau arahan admin"
+            className="input-field resize-none"
+          />
+          <div className="flex items-center justify-between mt-1 gap-2">
+            <p className={`text-[10px] ${item.priceChangeReason?.trim() ? 'text-text-secondary' : 'text-error'}`}>
+              {item.priceChangeReason?.trim() ? 'Alasan tersimpan untuk item ini' : 'Wajib diisi sebelum submit'}
+            </p>
+            <p className="text-[10px] text-text-secondary">{(item.priceChangeReason ?? '').length}/300</p>
           </div>
         </div>
       )}

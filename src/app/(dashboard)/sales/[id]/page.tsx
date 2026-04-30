@@ -82,6 +82,12 @@ export default function TransactionDetailPage() {
                   <span>{item.kuantiti}x {formatCurrency(item.hargaSatuan)}</span>
                   {item.snAwal && <span>SN: {item.snAwal} — {item.snAkhir}</span>}
                 </div>
+                {item.priceChangeReason && (
+                  <div className="mt-2 p-2 rounded-lg bg-amber-50 text-[11px] text-amber-700">
+                    <p>Harga master: {formatCurrency(item.hargaAwal ?? item.product.harga)}</p>
+                    <p><strong>Alasan rubah harga:</strong> {item.priceChangeReason}</p>
+                  </div>
+                )}
               </div>
             ))}
           </div>

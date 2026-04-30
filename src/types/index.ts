@@ -98,7 +98,9 @@ export interface TransactionItem {
   transactionId: string;
   productId: string;
   product: Product;
+  hargaAwal?: number;
   hargaSatuan: number;
+  priceChangeReason?: string;
   kuantiti: number;
   subTotal: number;
   snAwal?: string;
@@ -127,6 +129,7 @@ export interface SalesLineItem {
   scannedSNs: string[];
   nominalVirtual?: number;  // For isVirtualNominal products: nominal entered by user
   isManualPrice?: boolean;
+  priceChangeReason?: string;
 }
 
 // ─── DASHBOARD ──────────────────────────────────────

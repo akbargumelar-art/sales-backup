@@ -303,15 +303,6 @@ export async function POST(request: Request) {
         if (!ownerName || !ownerPhone) {
           return NextResponse.json({ message: 'Nama dan nomor HP pemilik outlet wajib diisi.' }, { status: 400 });
         }
-        for (const item of items) {
-          if (Number(item.kuantiti ?? 0) < 1) {
-            return NextResponse.json({ message: 'Kuantitas setiap item harus minimal 1.' }, { status: 400 });
-          }
-          if (Number(item.subTotal ?? 0) <= 0) {
-            return NextResponse.json({ message: 'Subtotal setiap item harus lebih dari 0.' }, { status: 400 });
-          }
-        }
-
         if (!outletId && !idOutlet) {
           return NextResponse.json({ message: 'Outlet belum dipilih. Silakan pilih ulang outlet.' }, { status: 400 });
         }
@@ -345,11 +336,56 @@ export async function POST(request: Request) {
           if (productId) productIdList.push(productId);
         });
         const productIds = Array.from(new Set(productIdList));
-        const validProductCount = productIds.length > 0
-          ? await prisma.product.count({ where: { id: { in: productIds } } })
-          : 0;
-        if (productIds.length === 0 || validProductCount !== productIds.length) {
+        const products = productIds.length > 0
+          ? await prisma.product.findMany({ where: { id: { in: productIds } } })
+          : [];
+        const productMap = new Map(products.map((product) => [product.id, product]));
+        if (productIds.length === 0 || products.length !== productIds.length) {
           return NextResponse.json({ message: 'Produk sudah berubah atau tidak ditemukan. Silakan pilih ulang produk.' }, { status: 404 });
+        }
+
+        const normalizedItems = [];
+        for (const item of items) {
+          const productId = String(item.productId ?? '');
+          const product = productMap.get(productId);
+          if (!product) {
+            return NextResponse.json({ message: 'Produk sudah berubah atau tidak ditemukan. Silakan pilih ulang produk.' }, { status: 404 });
+          }
+
+          const kuantiti = Number(item.kuantiti ?? 0);
+          const hargaSatuan = Number(item.hargaSatuan ?? 0);
+          const subTotal = Number(item.subTotal ?? 0);
+          if (!Number.isInteger(kuantiti) || kuantiti < 1) {
+            return NextResponse.json({ message: 'Kuantitas setiap item harus minimal 1.' }, { status: 400 });
+          }
+          if (!Number.isInteger(hargaSatuan) || hargaSatuan <= 0) {
+            return NextResponse.json({ message: 'Harga satuan setiap item harus lebih dari 0.' }, { status: 400 });
+          }
+          if (!Number.isInteger(subTotal) || subTotal <= 0 || subTotal !== hargaSatuan * kuantiti) {
+            return NextResponse.json({ message: 'Subtotal item tidak sesuai. Muat ulang halaman lalu coba lagi.' }, { status: 400 });
+          }
+
+          const isManualPrice = Boolean(item.isManualPrice);
+          const isPriceChanged = !product.isVirtualNominal && hargaSatuan !== product.harga;
+          const priceChangeReason = String(item.priceChangeReason ?? '').trim();
+          if ((isManualPrice || isPriceChanged) && !product.isVirtualNominal && !priceChangeReason) {
+            return NextResponse.json({ message: `Alasan perubahan harga wajib diisi untuk produk ${product.namaProduk}.` }, { status: 400 });
+          }
+          if (priceChangeReason.length > 300) {
+            return NextResponse.json({ message: 'Alasan perubahan harga maksimal 300 karakter.' }, { status: 400 });
+          }
+
+          normalizedItems.push({
+            productId,
+            hargaAwal: product.harga,
+            hargaSatuan,
+            priceChangeReason: !product.isVirtualNominal && (isManualPrice || isPriceChanged) ? priceChangeReason : null,
+            kuantiti,
+            subTotal,
+            snAwal: item.snAwal ? String(item.snAwal) : null,
+            snAkhir: item.snAkhir ? String(item.snAkhir) : null,
+            serialNumbers: Array.isArray(item.scannedSNs) && item.scannedSNs.length > 0 ? item.scannedSNs : undefined,
+          });
         }
 
         const now = new Date();
@@ -367,21 +403,13 @@ export async function POST(request: Request) {
             outletId: outlet.id,
             salesforceId: currentUser.id,
             status: 'COMPLETED',
-            totalTagihan: items.reduce((sum: number, item: any) => sum + Number(item.subTotal ?? 0), 0),
+            totalTagihan: normalizedItems.reduce((sum, item) => sum + item.subTotal, 0),
             ownerName,
             ownerPhone,
             catatan: payload.catatan ? String(payload.catatan).trim() : null,
             submittedAt: now,
             items: {
-              create: items.map((item: any) => ({
-                productId: String(item.productId ?? ''),
-                hargaSatuan: Number(item.hargaSatuan ?? 0),
-                kuantiti: Number(item.kuantiti ?? 1),
-                subTotal: Number(item.subTotal ?? 0),
-                snAwal: item.snAwal ? String(item.snAwal) : null,
-                snAkhir: item.snAkhir ? String(item.snAkhir) : null,
-                serialNumbers: Array.isArray(item.scannedSNs) && item.scannedSNs.length > 0 ? item.scannedSNs : undefined,
-              })),
+              create: normalizedItems,
             },
           },
         });
@@ -389,11 +417,14 @@ export async function POST(request: Request) {
       }
       case 'requestCancelTransaction': {
         if (!requireAdmin(currentUser.role)) return NextResponse.json({ message: 'Akses ditolak' }, { status: 403 });
+        const reason = String(payload.reason ?? '').trim();
+        if (!reason) return NextResponse.json({ message: 'Alasan pembatalan wajib diisi.' }, { status: 400 });
+        if (reason.length > 300) return NextResponse.json({ message: 'Alasan pembatalan maksimal 300 karakter.' }, { status: 400 });
         await prisma.transaction.update({
           where: { id: String(payload.trxId ?? '') },
           data: {
             status: 'PENDING_CANCEL',
-            cancelReason: String(payload.reason ?? '').trim(),
+            cancelReason: reason,
             cancelRequestedBy: currentUser.id,
             cancelRequestedAt: new Date(),
             cancelInitiatedBy: 'ADMIN',
@@ -402,6 +433,13 @@ export async function POST(request: Request) {
         break;
       }
       case 'approveCancelTransaction': {
+        const transaction = await prisma.transaction.findUnique({
+          where: { id: String(payload.trxId ?? '') },
+          select: { cancelReason: true },
+        });
+        if (!transaction?.cancelReason?.trim()) {
+          return NextResponse.json({ message: 'Transaksi belum memiliki alasan pembatalan.' }, { status: 400 });
+        }
         await prisma.transaction.update({
           where: { id: String(payload.trxId ?? '') },
           data: { status: 'CANCELLED', cancelApprovedAt: new Date() },
@@ -424,11 +462,14 @@ export async function POST(request: Request) {
         break;
       }
       case 'requestCancelBySalesforce': {
+        const reason = String(payload.reason ?? '').trim();
+        if (!reason) return NextResponse.json({ message: 'Alasan pembatalan wajib diisi.' }, { status: 400 });
+        if (reason.length > 300) return NextResponse.json({ message: 'Alasan pembatalan maksimal 300 karakter.' }, { status: 400 });
         await prisma.transaction.update({
           where: { id: String(payload.trxId ?? '') },
           data: {
             status: 'PENDING_CANCEL',
-            cancelReason: String(payload.reason ?? '').trim(),
+            cancelReason: reason,
             cancelRequestedBy: currentUser.id,
             cancelRequestedAt: new Date(),
             cancelInitiatedBy: 'SALESFORCE',
@@ -438,6 +479,13 @@ export async function POST(request: Request) {
       }
       case 'approveCancelBySalesforce': {
         if (!requireAdmin(currentUser.role)) return NextResponse.json({ message: 'Akses ditolak' }, { status: 403 });
+        const transaction = await prisma.transaction.findUnique({
+          where: { id: String(payload.trxId ?? '') },
+          select: { cancelReason: true },
+        });
+        if (!transaction?.cancelReason?.trim()) {
+          return NextResponse.json({ message: 'Transaksi belum memiliki alasan pembatalan.' }, { status: 400 });
+        }
         await prisma.transaction.update({
           where: { id: String(payload.trxId ?? '') },
           data: { status: 'CANCELLED', cancelApprovedAt: new Date() },

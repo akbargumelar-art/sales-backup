@@ -35,6 +35,9 @@ Aplikasi juga sudah dilengkapi manajemen data CSV, replace data double saat uplo
 - Perubahan username user Salesforce otomatis ikut memperbarui assignment outlet yang memakai username lama
 - Relasi transaksi ke user input (`salesforceId`) dipakai sebagai sumber keterangan siapa yang submit penjualan
 - Submit transaksi melakukan validasi outlet dan produk di backend agar transaksi tidak dibuat dengan referensi data yang sudah tidak valid
+- Submit transaksi menyimpan audit rubah harga per item melalui harga master saat input dan alasan rubah harga
+- API menolak submit transaksi jika harga item dirubah atau checklist manual aktif tanpa alasan rubah harga
+- API menolak pengajuan pembatalan transaksi dari Admin maupun Salesforce jika alasan pembatalan kosong
 
 ---
 
@@ -55,10 +58,12 @@ Aplikasi juga sudah dilengkapi manajemen data CSV, replace data double saat uplo
 - Halaman `Kelola Outlet` memiliki kolom `salesforceUsername` di form, list, template CSV, upload CSV, dan download CSV
 - User Salesforce hanya melihat outlet yang `salesforceUsername`-nya sesuai username login user tersebut
 - Input penjualan memiliki opsi harga satuan manual per item
+- Jika opsi harga satuan manual dipilih, form alasan rubah harga muncul dan wajib diisi sebelum transaksi bisa disubmit
 - Laporan penjualan menampilkan keterangan user yang input transaksi, termasuk role, username, dan nama user untuk admin
 - Export laporan penjualan menyertakan kolom `Input Nama`, `Input Username`, dan `Input Role`
-- Export laporan transaksi sudah dibuat detail per item, bukan hanya total per outlet
+- Export laporan transaksi sudah dibuat detail per item, bukan hanya total per outlet, termasuk harga awal, penanda rubah harga, dan alasan rubah harga
 - Data yang ikut ter-download di laporan transaksi mencakup data submit utama: tanggal, status, TAP, outlet, ID outlet, owner, WA owner, Salesforce/input user, produk, kode produk, nomor seri/serial, kuantiti, harga jual, subtotal, dan total tagihan
+- Detail transaksi menampilkan alasan rubah harga untuk item yang memakai harga manual
 - Dashboard admin memiliki tabel summary full-width yang bisa collapse/expand dengan urutan `Per TAP`, `Per Salesforce`, lalu `Per Produk`
 - Summary admin `Per TAP` menampilkan jumlah transaksi, outlet unik, Salesforce unik, qty, omset, dan baris `Total 1 Cluster`
 - Summary admin `Per Salesforce` memiliki kolom TAP terpisah setelah nama Salesforce

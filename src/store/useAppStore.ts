@@ -166,6 +166,8 @@ async function postJson<T>(url: string, body?: unknown): Promise<T> {
 function stripProductSnapshot(items: SalesLineItem[]) {
   return items.map((item) => ({
     productId: item.productId,
+    isManualPrice: item.isManualPrice,
+    priceChangeReason: item.priceChangeReason,
     hargaSatuan: item.hargaSatuan,
     kuantiti: item.kuantiti,
     subTotal: item.subTotal,

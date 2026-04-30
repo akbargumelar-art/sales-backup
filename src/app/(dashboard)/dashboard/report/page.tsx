@@ -169,7 +169,10 @@ export default function ReportPage() {
       'namaProduk',
       'kategoriProduk',
       'kuantiti',
+      'hargaAwal',
       'hargaJual',
+      'hargaBerubah',
+      'alasanRubahHarga',
       'subtotalProduk',
       'snAwal',
       'snAkhir',
@@ -198,7 +201,10 @@ export default function ReportPage() {
       item.product.namaProduk,
       item.product.kategori,
       item.kuantiti,
+      item.hargaAwal ?? item.product.harga,
       item.hargaSatuan,
+      item.priceChangeReason ? 'YA' : '',
+      item.priceChangeReason ?? '',
       item.subTotal,
       item.snAwal ?? '',
       item.snAkhir ?? '',
@@ -361,6 +367,9 @@ export default function ReportPage() {
                       <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${trx.cancelInitiatedBy === 'SALESFORCE' ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'}`}>
                         Diajukan: {trx.cancelInitiatedBy === 'SALESFORCE' ? 'Salesforce' : 'Admin'}
                       </span>
+                    )}
+                    {trx.items.some((item) => item.priceChangeReason) && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-amber-50 text-amber-700">Rubah harga</span>
                     )}
                   </div>
                   <p className="text-caption text-text-secondary mt-0.5">{trx.nomorTransaksi}</p>

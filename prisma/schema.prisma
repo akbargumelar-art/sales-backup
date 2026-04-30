@@ -85,18 +85,18 @@ model Product {
 }
 
 model Outlet {
-  id           String        @id @default(cuid())
-  idOutlet     String        @unique
-  nomorRS      String
-  namaOutlet   String
-  tap          String
+  id                 String        @id @default(cuid())
+  idOutlet           String        @unique
+  nomorRS            String
+  namaOutlet         String
+  tap                String
   salesforceUsername String?
-  kabupaten    String
-  kecamatan    String
-  isManual     Boolean       @default(true)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  transactions Transaction[]
+  kabupaten          String
+  kecamatan          String
+  isManual           Boolean       @default(true)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  transactions       Transaction[]
 
   @@index([tap])
   @@index([salesforceUsername])
@@ -104,20 +104,20 @@ model Outlet {
 }
 
 model Transaction {
-  id                String             @id @default(cuid())
-  nomorTransaksi    String             @unique
+  id                String            @id @default(cuid())
+  nomorTransaksi    String            @unique
   outletId          String
-  outlet            Outlet             @relation(fields: [outletId], references: [id])
+  outlet            Outlet            @relation(fields: [outletId], references: [id])
   salesforceId      String
-  salesforce        User               @relation(fields: [salesforceId], references: [id])
-  status            TransactionStatus  @default(COMPLETED)
+  salesforce        User              @relation(fields: [salesforceId], references: [id])
+  status            TransactionStatus @default(COMPLETED)
   totalTagihan      Int
   ownerName         String
   ownerPhone        String
-  catatan           String?            @db.Text
-  submittedAt       DateTime           @default(now())
+  catatan           String?           @db.Text
+  submittedAt       DateTime          @default(now())
   confirmedAt       DateTime?
-  cancelReason      String?            @db.Text
+  cancelReason      String?           @db.Text
   cancelRequestedBy String?
   cancelRequestedAt DateTime?
   cancelApprovedAt  DateTime?
@@ -132,17 +132,19 @@ model Transaction {
 }
 
 model TransactionItem {
-  id             String      @id @default(cuid())
-  transactionId  String
-  transaction    Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  productId      String
-  product        Product     @relation(fields: [productId], references: [id])
-  hargaSatuan    Int
-  kuantiti       Int
-  subTotal       Int
-  snAwal         String?
-  snAkhir        String?
-  serialNumbers  Json?
+  id                String      @id @default(cuid())
+  transactionId     String
+  transaction       Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  productId         String
+  product           Product     @relation(fields: [productId], references: [id])
+  hargaAwal         Int?
+  hargaSatuan       Int
+  priceChangeReason String?     @db.Text
+  kuantiti          Int
+  subTotal          Int
+  snAwal            String?
+  snAkhir           String?
+  serialNumbers     Json?
 
   @@index([transactionId])
   @@index([productId])
