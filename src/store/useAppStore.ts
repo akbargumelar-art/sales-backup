@@ -84,6 +84,16 @@ interface ActionResult<T = unknown> {
   data?: T;
 }
 
+interface UploadLockState {
+  isActive: boolean;
+  title: string;
+  message: string;
+  detail: string;
+  current: number;
+  total: number;
+  failed: number;
+}
+
 interface AppState {
   hasHydrated: boolean;
   hasSetup: boolean;
@@ -93,6 +103,7 @@ interface AppState {
   sidebarCollapsed: boolean;
   activeNav: string;
   toast: { message: string; type: ToastType } | null;
+  uploadLock: UploadLockState;
   salesFormItems: SalesLineItem[];
   selectedOutletId: string;
   users: User[];
@@ -107,6 +118,9 @@ interface AppState {
   setActiveNav: (nav: string) => void;
   showToast: (message: string, type: ToastType) => void;
   hideToast: () => void;
+  startUploadLock: (input?: string | Partial<Omit<UploadLockState, 'isActive'>>) => void;
+  updateUploadLock: (input: Partial<Omit<UploadLockState, 'isActive'>>) => void;
+  stopUploadLock: () => void;
   setSalesFormItems: (items: SalesLineItem[]) => void;
   setSelectedOutletId: (id: string) => void;
   initializeAdmin: (input: CreateAdminInput) => Promise<boolean>;
@@ -160,6 +174,16 @@ function stripProductSnapshot(items: SalesLineItem[]) {
   }));
 }
 
+const createIdleUploadLock = (): UploadLockState => ({
+  isActive: false,
+  title: 'Upload Sedang Diproses',
+  message: 'Mengupload data. Mohon tunggu sampai proses selesai.',
+  detail: '',
+  current: 0,
+  total: 0,
+  failed: 0,
+});
+
 export const useAppStore = create<AppState>((set, get) => {
   const applyBootstrap = (data: BootstrapData) => {
     set({
@@ -195,6 +219,7 @@ export const useAppStore = create<AppState>((set, get) => {
     sidebarCollapsed: false,
     activeNav: '/dashboard',
     toast: null,
+    uploadLock: createIdleUploadLock(),
     salesFormItems: [],
     selectedOutletId: '',
     users: [],
@@ -236,6 +261,21 @@ export const useAppStore = create<AppState>((set, get) => {
       }, 3000);
     },
     hideToast: () => set({ toast: null }),
+    startUploadLock: (input) => set({
+      uploadLock: {
+        ...createIdleUploadLock(),
+        isActive: true,
+        ...(typeof input === 'string' ? { message: input } : input),
+      },
+    }),
+    updateUploadLock: (input) => set((state) => ({
+      uploadLock: {
+        ...state.uploadLock,
+        ...input,
+        isActive: true,
+      },
+    })),
+    stopUploadLock: () => set({ uploadLock: createIdleUploadLock() }),
     setSalesFormItems: (items) => set({ salesFormItems: items }),
     setSelectedOutletId: (id) => set({ selectedOutletId: id }),
     initializeAdmin: async (input) => {

@@ -145,6 +145,23 @@ export function parseNumber(value: string | undefined, fallback = 0): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+export function replaceDuplicateRows<T>(rows: T[], getKey: (row: T) => string): { rows: T[]; replaced: number } {
+  const latestRows = new Map<string, T>();
+  let replaced = 0;
+
+  rows.forEach((row) => {
+    const key = getKey(row).trim().toUpperCase();
+    if (!key) return;
+    if (latestRows.has(key)) {
+      latestRows.delete(key);
+      replaced += 1;
+    }
+    latestRows.set(key, row);
+  });
+
+  return { rows: Array.from(latestRows.values()), replaced };
+}
+
 export function findDuplicateValues(values: string[]): string[] {
   const counts = values.reduce<Record<string, { label: string; count: number }>>((record, value) => {
     const label = value.trim();

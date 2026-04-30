@@ -3,7 +3,8 @@
 import { ChangeEvent, useMemo, useState } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { getVisibleOutlets, getViewableTaps } from '@/lib/app-data';
-import { downloadCsv, findDuplicateValues, getCsvValue, parseBoolean, parseCsv } from '@/lib/csv';
+import { downloadCsv, getCsvValue, parseBoolean, parseCsv, replaceDuplicateRows } from '@/lib/csv';
+import { waitForUploadOverlayPaint } from '@/lib/upload-lock';
 import type { Outlet } from '@/types';
 
 type OutletImportRow = {
@@ -20,7 +21,7 @@ type OutletImportRow = {
 const outletCsvHeaders = ['idOutlet', 'nomorRS', 'namaOutlet', 'tap', 'salesforceUsername', 'kabupaten', 'kecamatan', 'isManual'];
 
 export default function ManageOutletsPage() {
-  const { user, users, outlets, showToast, addOutlet, updateOutlet } = useAppStore();
+  const { user, users, outlets, showToast, addOutlet, updateOutlet, startUploadLock, updateUploadLock, stopUploadLock } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [filterTap, setFilterTap] = useState<string>('ALL');
   const [editingOutlet, setEditingOutlet] = useState<Outlet | null>(null);
@@ -112,52 +113,97 @@ export default function ManageOutletsPage() {
       showToast('Tidak ada data outlet yang terbaca', 'error');
       return;
     }
-    const duplicateIds = findDuplicateValues(parsed.map((row) => row.idOutlet));
-    if (duplicateIds.length > 0) {
-      showToast(`ID Outlet duplikat di file: ${duplicateIds.slice(0, 3).join(', ')}`, 'error');
-      return;
-    }
+    const { rows: uploadRows, replaced } = replaceDuplicateRows(parsed, (row) => row.idOutlet);
     const validSalesforceUsernames = new Set(users.filter((item) => item.role === 'SALESFORCE').map((item) => item.username.toLowerCase()));
-    const unknownSalesforces = Array.from(new Set(parsed
+    const unknownSalesforces = Array.from(new Set(uploadRows
       .map((row) => row.salesforceUsername)
       .filter((username) => username && !validSalesforceUsernames.has(username))));
     if (unknownSalesforces.length > 0) {
       showToast(`Username Salesforce tidak ditemukan: ${unknownSalesforces.slice(0, 3).join(', ')}`, 'error');
       return;
     }
-    setImportRows(parsed);
+    if (replaced > 0) {
+      showToast(`${replaced} data duplikat di file diganti dengan baris terbaru`, 'warning');
+    }
+    setImportRows(uploadRows);
     setShowImport(true);
   };
 
   const confirmImport = async () => {
+    if (importRows.length === 0) return;
     const failures: string[] = [];
-    for (const row of importRows) {
-      const existing = outlets.find((outlet) => outlet.idOutlet.toUpperCase() === row.idOutlet.toUpperCase());
-      const payload = {
-        idOutlet: row.idOutlet,
-        nomorRS: row.nomorRS,
-        namaOutlet: row.namaOutlet,
-        tap: row.tap,
-        salesforceUsername: row.salesforceUsername,
-        kabupaten: row.kabupaten,
-        kecamatan: row.kecamatan,
-        isManual: row.isManual,
-      };
-      if (existing && !isAdminOrAbove) {
-        failures.push(`${row.idOutlet}: hanya admin yang bisa memperbarui outlet`);
-        continue;
+    const total = importRows.length;
+    startUploadLock({
+      message: `Mengupload ${total} outlet. Jangan pindah halaman sampai proses selesai.`,
+      detail: 'Menyiapkan data outlet',
+      current: 0,
+      total,
+      failed: 0,
+    });
+    await waitForUploadOverlayPaint();
+    try {
+      for (let index = 0; index < importRows.length; index += 1) {
+        const row = importRows[index];
+        const current = index + 1;
+        updateUploadLock({
+          message: `Mengupload outlet ${current} dari ${total}`,
+          detail: `${row.idOutlet} - ${row.namaOutlet}`,
+          current: index,
+          total,
+          failed: failures.length,
+        });
+        const existing = outlets.find((outlet) => outlet.idOutlet.toUpperCase() === row.idOutlet.toUpperCase());
+        const payload = {
+          idOutlet: row.idOutlet,
+          nomorRS: row.nomorRS,
+          namaOutlet: row.namaOutlet,
+          tap: row.tap,
+          salesforceUsername: row.salesforceUsername,
+          kabupaten: row.kabupaten,
+          kecamatan: row.kecamatan,
+          isManual: row.isManual,
+        };
+        if (existing && !isAdminOrAbove) {
+          failures.push(`${row.idOutlet}: hanya admin yang bisa memperbarui outlet`);
+          updateUploadLock({
+            message: `Outlet ${current} dari ${total} selesai diproses`,
+            detail: `${row.idOutlet} dilewati karena tidak punya akses update`,
+            current,
+            total,
+            failed: failures.length,
+          });
+          continue;
+        }
+        const result = existing ? await updateOutlet(existing.id, payload) : await addOutlet(payload);
+        if (!result.ok) failures.push(`${row.idOutlet}: ${result.message}`);
+        updateUploadLock({
+          message: `Outlet ${current} dari ${total} selesai diproses`,
+          detail: `${row.idOutlet} - ${row.namaOutlet}`,
+          current,
+          total,
+          failed: failures.length,
+        });
       }
-      const result = existing ? await updateOutlet(existing.id, payload) : await addOutlet(payload);
-      if (!result.ok) failures.push(`${row.idOutlet}: ${result.message}`);
-    }
 
-    if (failures.length > 0) {
-      showToast(`${failures.length} baris gagal. ${failures[0]}`, 'error');
-      return;
+      updateUploadLock({
+        message: 'Menyelesaikan upload outlet...',
+        detail: 'Memperbarui tampilan data outlet',
+        current: total,
+        total,
+        failed: failures.length,
+      });
+      await waitForUploadOverlayPaint();
+
+      if (failures.length > 0) {
+        showToast(`${failures.length} baris gagal. ${failures[0]}`, 'error');
+        return;
+      }
+      setShowImport(false);
+      setImportRows([]);
+      showToast(`${importRows.length} outlet berhasil diupload`, 'success');
+    } finally {
+      stopUploadLock();
     }
-    setShowImport(false);
-    setImportRows([]);
-    showToast(`${importRows.length} outlet berhasil diupload`, 'success');
   };
 
   return (

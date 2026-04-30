@@ -7,6 +7,7 @@ import MobileHeader from '@/components/layout/MobileHeader';
 import BottomNav from '@/components/layout/BottomNav';
 import DesktopSidebar from '@/components/layout/DesktopSidebar';
 import Toast from '@/components/ui/Toast';
+import UploadLockOverlay from '@/components/ui/UploadLockOverlay';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -57,6 +58,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </div>
       <Toast />
+      <UploadLockOverlay />
     </div>
   );
 }

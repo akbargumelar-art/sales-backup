@@ -3,7 +3,8 @@
 import { ChangeEvent, useMemo, useState } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { getViewableTaps } from '@/lib/app-data';
-import { downloadCsv, findDuplicateValues, getCsvValue, parseBoolean, parseCsv } from '@/lib/csv';
+import { downloadCsv, getCsvValue, parseBoolean, parseCsv, replaceDuplicateRows } from '@/lib/csv';
+import { waitForUploadOverlayPaint } from '@/lib/upload-lock';
 import type { User } from '@/types';
 
 type UserImportRow = {
@@ -37,7 +38,7 @@ const parseAllowedTaps = (value: string | undefined, tap: string, role: User['ro
 };
 
 export default function ManageSalesforcePage() {
-  const { user: currentUser, users, taps, showToast, addUser, updateUser, resetUserPassword } = useAppStore();
+  const { user: currentUser, users, taps, showToast, addUser, updateUser, resetUserPassword, startUploadLock, updateUploadLock, stopUploadLock } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [filterTap, setFilterTap] = useState<string>('ALL');
   const [filterRole, setFilterRole] = useState<string>('ALL');
@@ -187,49 +188,94 @@ export default function ManageSalesforcePage() {
       showToast('Tidak ada data user yang terbaca', 'error');
       return;
     }
-    const duplicateUsernames = findDuplicateValues(parsed.map((row) => row.username));
-    if (duplicateUsernames.length > 0) {
-      showToast(`Username duplikat di file: ${duplicateUsernames.slice(0, 3).join(', ')}`, 'error');
-      return;
+    const { rows: uploadRows, replaced } = replaceDuplicateRows(parsed, (row) => row.username);
+    if (replaced > 0) {
+      showToast(`${replaced} data duplikat di file diganti dengan baris terbaru`, 'warning');
     }
-    setImportRows(parsed);
+    setImportRows(uploadRows);
     setShowImport(true);
   };
 
   const confirmImport = async () => {
+    if (importRows.length === 0) return;
     const failures: string[] = [];
-    for (const row of importRows) {
-      const existing = users.find((item) => item.username.toLowerCase() === row.username.toLowerCase());
-      if (!isSuper && (row.role !== 'SALESFORCE' || (existing && existing.role !== 'SALESFORCE'))) {
-        failures.push(`${row.username}: admin hanya bisa mengelola user Salesforce`);
-        continue;
+    const total = importRows.length;
+    startUploadLock({
+      message: `Mengupload ${total} user. Jangan pindah halaman sampai proses selesai.`,
+      detail: 'Menyiapkan data user',
+      current: 0,
+      total,
+      failed: 0,
+    });
+    await waitForUploadOverlayPaint();
+    try {
+      for (let index = 0; index < importRows.length; index += 1) {
+        const row = importRows[index];
+        const current = index + 1;
+        updateUploadLock({
+          message: `Mengupload user ${current} dari ${total}`,
+          detail: `${row.nama} (@${row.username})`,
+          current: index,
+          total,
+          failed: failures.length,
+        });
+        const existing = users.find((item) => item.username.toLowerCase() === row.username.toLowerCase());
+        if (!isSuper && (row.role !== 'SALESFORCE' || (existing && existing.role !== 'SALESFORCE'))) {
+          failures.push(`${row.username}: admin hanya bisa mengelola user Salesforce`);
+          updateUploadLock({
+            message: `User ${current} dari ${total} selesai diproses`,
+            detail: `@${row.username} dilewati karena tidak punya akses update`,
+            current,
+            total,
+            failed: failures.length,
+          });
+          continue;
+        }
+
+        const payload = {
+          nama: row.nama,
+          username: row.username,
+          role: row.role,
+          tap: row.tap,
+          allowedTaps: row.allowedTaps,
+          isActive: row.isActive,
+        };
+
+        const result = existing
+          ? await updateUser(existing.id, payload)
+          : row.password
+            ? await addUser({ ...payload, password: row.password, mustChangePassword: row.mustChangePassword })
+            : { ok: false, message: 'Password wajib diisi untuk user baru' };
+
+        if (!result.ok) failures.push(`${row.username}: ${result.message}`);
+        updateUploadLock({
+          message: `User ${current} dari ${total} selesai diproses`,
+          detail: `${row.nama} (@${row.username})`,
+          current,
+          total,
+          failed: failures.length,
+        });
       }
 
-      const payload = {
-        nama: row.nama,
-        username: row.username,
-        role: row.role,
-        tap: row.tap,
-        allowedTaps: row.allowedTaps,
-        isActive: row.isActive,
-      };
+      updateUploadLock({
+        message: 'Menyelesaikan upload user...',
+        detail: 'Memperbarui tampilan data user',
+        current: total,
+        total,
+        failed: failures.length,
+      });
+      await waitForUploadOverlayPaint();
 
-      const result = existing
-        ? await updateUser(existing.id, payload)
-        : row.password
-          ? await addUser({ ...payload, password: row.password, mustChangePassword: row.mustChangePassword })
-          : { ok: false, message: 'Password wajib diisi untuk user baru' };
-
-      if (!result.ok) failures.push(`${row.username}: ${result.message}`);
+      if (failures.length > 0) {
+        showToast(`${failures.length} baris gagal. ${failures[0]}`, 'error');
+        return;
+      }
+      setShowImport(false);
+      setImportRows([]);
+      showToast(`${importRows.length} user berhasil diupload`, 'success');
+    } finally {
+      stopUploadLock();
     }
-
-    if (failures.length > 0) {
-      showToast(`${failures.length} baris gagal. ${failures[0]}`, 'error');
-      return;
-    }
-    setShowImport(false);
-    setImportRows([]);
-    showToast(`${importRows.length} user berhasil diupload`, 'success');
   };
 
   return (

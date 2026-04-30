@@ -3,7 +3,8 @@
 import { ChangeEvent, useMemo, useState } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { formatCurrency } from '@/lib/app-data';
-import { downloadCsv, findDuplicateValues, getCsvValue, parseBoolean, parseCsv, parseNumber } from '@/lib/csv';
+import { downloadCsv, getCsvValue, parseBoolean, parseCsv, parseNumber, replaceDuplicateRows } from '@/lib/csv';
+import { waitForUploadOverlayPaint } from '@/lib/upload-lock';
 import type { Product } from '@/types';
 
 type ProductFormState = {
@@ -53,7 +54,7 @@ const normalizeProductBrand = (value: string | undefined): 'LINKAJA' | 'FINPAY' 
 };
 
 export default function ManageProductsPage() {
-  const { user, products, showToast, upsertProduct, toggleProductActive } = useAppStore();
+  const { user, products, showToast, upsertProduct, toggleProductActive, startUploadLock, updateUploadLock, stopUploadLock } = useAppStore();
   const [filterKategori, setFilterKategori] = useState<'ALL' | 'VIRTUAL' | 'FISIK'>('ALL');
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -130,39 +131,77 @@ export default function ManageProductsPage() {
       showToast('Tidak ada data produk yang terbaca', 'error');
       return;
     }
-    const duplicateCodes = findDuplicateValues(parsed.map((row) => row.kode));
-    if (duplicateCodes.length > 0) {
-      showToast(`Kode produk duplikat di file: ${duplicateCodes.slice(0, 3).join(', ')}`, 'error');
-      return;
+    const { rows: uploadRows, replaced } = replaceDuplicateRows(parsed, (row) => row.kode);
+    if (replaced > 0) {
+      showToast(`${replaced} data duplikat di file diganti dengan baris terbaru`, 'warning');
     }
-    setImportRows(parsed);
+    setImportRows(uploadRows);
     setShowImport(true);
   };
 
   const confirmImport = async () => {
+    if (importRows.length === 0) return;
     const failures: string[] = [];
-    for (const row of importRows) {
-      const existing = products.find((product) => product.kode.toUpperCase() === row.kode.toUpperCase());
-      const result = await upsertProduct(existing?.id ?? null, {
-        kode: row.kode,
-        kategori: row.kategori,
-        namaProduk: row.namaProduk,
-        harga: row.harga,
-        isActive: row.isActive,
-        isVirtualNominal: row.isVirtualNominal,
-        brand: row.brand,
-        adminFee: row.adminFee,
-        minNominal: row.minNominal,
+    const total = importRows.length;
+    startUploadLock({
+      message: `Mengupload ${total} produk. Jangan pindah halaman sampai proses selesai.`,
+      detail: 'Menyiapkan data produk',
+      current: 0,
+      total,
+      failed: 0,
+    });
+    await waitForUploadOverlayPaint();
+    try {
+      for (let index = 0; index < importRows.length; index += 1) {
+        const row = importRows[index];
+        const current = index + 1;
+        updateUploadLock({
+          message: `Mengupload produk ${current} dari ${total}`,
+          detail: `${row.kode} - ${row.namaProduk}`,
+          current: index,
+          total,
+          failed: failures.length,
+        });
+        const existing = products.find((product) => product.kode.toUpperCase() === row.kode.toUpperCase());
+        const result = await upsertProduct(existing?.id ?? null, {
+          kode: row.kode,
+          kategori: row.kategori,
+          namaProduk: row.namaProduk,
+          harga: row.harga,
+          isActive: row.isActive,
+          isVirtualNominal: row.isVirtualNominal,
+          brand: row.brand,
+          adminFee: row.adminFee,
+          minNominal: row.minNominal,
+        });
+        if (!result.ok) failures.push(`${row.kode}: ${result.message}`);
+        updateUploadLock({
+          message: `Produk ${current} dari ${total} selesai diproses`,
+          detail: `${row.kode} - ${row.namaProduk}`,
+          current,
+          total,
+          failed: failures.length,
+        });
+      }
+      updateUploadLock({
+        message: 'Menyelesaikan upload produk...',
+        detail: 'Memperbarui tampilan data produk',
+        current: total,
+        total,
+        failed: failures.length,
       });
-      if (!result.ok) failures.push(`${row.kode}: ${result.message}`);
+      await waitForUploadOverlayPaint();
+
+      if (failures.length > 0) {
+        showToast(`${failures.length} baris gagal. ${failures[0]}`, 'error');
+        return;
+      }
+      setShowImport(false);
+      setImportRows([]);
+      showToast(`${importRows.length} produk berhasil diupload`, 'success');
+    } finally {
+      stopUploadLock();
     }
-    if (failures.length > 0) {
-      showToast(`${failures.length} baris gagal. ${failures[0]}`, 'error');
-      return;
-    }
-    setShowImport(false);
-    setImportRows([]);
-    showToast(`${importRows.length} produk berhasil diupload`, 'success');
   };
 
   return (

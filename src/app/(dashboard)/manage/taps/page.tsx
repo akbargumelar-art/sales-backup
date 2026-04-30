@@ -2,7 +2,8 @@
 
 import { ChangeEvent, useMemo, useState } from 'react';
 import { useAppStore } from '@/store/useAppStore';
-import { downloadCsv, findDuplicateValues, getCsvValue, parseBoolean, parseCsv } from '@/lib/csv';
+import { downloadCsv, getCsvValue, parseBoolean, parseCsv, replaceDuplicateRows } from '@/lib/csv';
+import { waitForUploadOverlayPaint } from '@/lib/upload-lock';
 import type { Tap } from '@/types';
 
 type TapFormPayload = {
@@ -27,7 +28,7 @@ const normalizeTapCodeForImport = (value: string) => {
 };
 
 export default function ManageTapsPage() {
-  const { user, taps, users, outlets, showToast, addTap, updateTap, toggleTapActive } = useAppStore();
+  const { user, taps, users, outlets, showToast, addTap, updateTap, toggleTapActive, startUploadLock, updateUploadLock, stopUploadLock } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [editingTap, setEditingTap] = useState<Tap | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -125,30 +126,68 @@ export default function ManageTapsPage() {
       showToast('Tidak ada data TAP yang terbaca', 'error');
       return;
     }
-    const duplicateCodes = findDuplicateValues(parsed.map((row) => row.kode));
-    if (duplicateCodes.length > 0) {
-      showToast(`Kode TAP duplikat di file: ${duplicateCodes.slice(0, 3).join(', ')}`, 'error');
-      return;
+    const { rows: uploadRows, replaced } = replaceDuplicateRows(parsed, (row) => row.kode);
+    if (replaced > 0) {
+      showToast(`${replaced} data duplikat di file diganti dengan baris terbaru`, 'warning');
     }
-    setImportRows(parsed);
+    setImportRows(uploadRows);
     setShowImport(true);
   };
 
   const confirmImport = async () => {
+    if (importRows.length === 0) return;
     const failures: string[] = [];
-    for (const row of importRows) {
-      const existing = taps.find((tap) => tap.kode.toUpperCase() === row.kode.toUpperCase());
-      const result = existing ? await updateTap(existing.id, row) : await addTap(row);
-      if (!result.ok) failures.push(`${row.kode}: ${result.message}`);
-    }
+    const total = importRows.length;
+    startUploadLock({
+      message: `Mengupload ${total} TAP. Jangan pindah halaman sampai proses selesai.`,
+      detail: 'Menyiapkan data TAP',
+      current: 0,
+      total,
+      failed: 0,
+    });
+    await waitForUploadOverlayPaint();
+    try {
+      for (let index = 0; index < importRows.length; index += 1) {
+        const row = importRows[index];
+        const current = index + 1;
+        updateUploadLock({
+          message: `Mengupload TAP ${current} dari ${total}`,
+          detail: `${row.kode} - ${row.nama}`,
+          current: index,
+          total,
+          failed: failures.length,
+        });
+        const existing = taps.find((tap) => tap.kode.toUpperCase() === row.kode.toUpperCase());
+        const result = existing ? await updateTap(existing.id, row) : await addTap(row);
+        if (!result.ok) failures.push(`${row.kode}: ${result.message}`);
+        updateUploadLock({
+          message: `TAP ${current} dari ${total} selesai diproses`,
+          detail: `${row.kode} - ${row.nama}`,
+          current,
+          total,
+          failed: failures.length,
+        });
+      }
 
-    if (failures.length > 0) {
-      showToast(`${failures.length} baris gagal. ${failures[0]}`, 'error');
-      return;
+      updateUploadLock({
+        message: 'Menyelesaikan upload TAP...',
+        detail: 'Memperbarui tampilan data TAP',
+        current: total,
+        total,
+        failed: failures.length,
+      });
+      await waitForUploadOverlayPaint();
+
+      if (failures.length > 0) {
+        showToast(`${failures.length} baris gagal. ${failures[0]}`, 'error');
+        return;
+      }
+      setShowImport(false);
+      setImportRows([]);
+      showToast(`${importRows.length} TAP berhasil diupload`, 'success');
+    } finally {
+      stopUploadLock();
     }
-    setShowImport(false);
-    setImportRows([]);
-    showToast(`${importRows.length} TAP berhasil diupload`, 'success');
   };
 
   if (user?.role !== 'SUPER_ADMIN') {
