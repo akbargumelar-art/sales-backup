@@ -108,6 +108,11 @@ export default function DashboardPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [showTapFilter, setShowTapFilter] = useState(false);
   const [showSfFilter, setShowSfFilter] = useState(false);
+  const [openSummaryTables, setOpenSummaryTables] = useState({
+    tap: true,
+    salesforce: true,
+    product: true,
+  });
 
   const isAdminOrAbove = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
   const viewableTaps = useMemo(() => user ? getViewableTaps(user) : [], [user]);
@@ -364,10 +369,30 @@ export default function DashboardPage() {
             <h3 className="text-h2 text-text-primary">Summary Admin</h3>
             <p className="text-caption text-text-secondary">{summary.totalTransaksi} transaksi</p>
           </div>
-          <div className="grid gap-3 xl:grid-cols-3">
-            <SummaryTableCard title="Per Produk" rows={productSummary} emptyLabel="Belum ada produk terjual" />
-            <SummaryTableCard title="Per TAP" rows={tapSummary} emptyLabel="Belum ada transaksi per TAP" showOutlet />
-            <SummaryTableCard title="Per Salesforce" rows={salesforceSummary} emptyLabel="Belum ada transaksi per Salesforce" showOutlet />
+          <div className="space-y-3">
+            <SummaryTableCard
+              title="Per TAP"
+              rows={tapSummary}
+              emptyLabel="Belum ada transaksi per TAP"
+              showOutlet
+              isOpen={openSummaryTables.tap}
+              onToggle={() => setOpenSummaryTables((prev) => ({ ...prev, tap: !prev.tap }))}
+            />
+            <SummaryTableCard
+              title="Per Salesforce"
+              rows={salesforceSummary}
+              emptyLabel="Belum ada transaksi per Salesforce"
+              showOutlet
+              isOpen={openSummaryTables.salesforce}
+              onToggle={() => setOpenSummaryTables((prev) => ({ ...prev, salesforce: !prev.salesforce }))}
+            />
+            <SummaryTableCard
+              title="Per Produk"
+              rows={productSummary}
+              emptyLabel="Belum ada produk terjual"
+              isOpen={openSummaryTables.product}
+              onToggle={() => setOpenSummaryTables((prev) => ({ ...prev, product: !prev.product }))}
+            />
           </div>
         </div>
       )}
@@ -493,26 +518,47 @@ function SummaryTableCard({
   title,
   rows,
   emptyLabel,
+  isOpen,
+  onToggle,
   showOutlet = false,
 }: {
   title: string;
   rows: DashboardSummaryRow[];
   emptyLabel: string;
+  isOpen: boolean;
+  onToggle: () => void;
   showOutlet?: boolean;
 }) {
   return (
     <div className="card p-0 overflow-hidden">
-      <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3">
-        <h4 className="text-body font-semibold text-text-primary">{title}</h4>
-        <span className="text-caption text-text-secondary">{rows.length} baris</span>
-      </div>
-      {rows.length === 0 ? (
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={isOpen}
+        className={`w-full px-4 py-3 flex items-center justify-between gap-3 text-left hover:bg-surface/70 transition-colors ${isOpen ? 'border-b border-border' : ''}`}
+      >
+        <div className="min-w-0">
+          <h4 className="text-body font-semibold text-text-primary">{title}</h4>
+          <p className="text-caption text-text-secondary">{rows.length} baris</p>
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          <span className="hidden sm:inline text-caption font-semibold text-text-primary">
+            {formatCurrency(rows.reduce((sum, row) => sum + row.omzet, 0))}
+          </span>
+          <span className={`w-8 h-8 rounded-lg bg-surface flex items-center justify-center text-text-secondary transition-transform ${isOpen ? 'rotate-180' : ''}`}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </span>
+        </div>
+      </button>
+      {isOpen && rows.length === 0 ? (
         <div className="px-4 py-8 text-center">
           <p className="text-body text-text-secondary">{emptyLabel}</p>
         </div>
-      ) : (
+      ) : isOpen ? (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[520px] text-left">
+          <table className="w-full min-w-[680px] text-left">
             <thead className="bg-surface">
               <tr className="text-[10px] uppercase font-bold text-text-secondary">
                 <th className="px-4 py-2.5 w-[38%]">Nama</th>
@@ -545,7 +591,7 @@ function SummaryTableCard({
             </tbody>
           </table>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
